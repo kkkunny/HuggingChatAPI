@@ -332,6 +332,8 @@ func (api *Api) ChatConversation(ctx context.Context, req *ChatConversationReque
 	resp, err := api.client.R().
 		SetContext(ctx).
 		SetBodyJsonMarshal(req).
+		SetHeader("Accept", "*/*").
+		DisableAutoReadResponse().
 		Post(urlStr)
 	if err != nil {
 		return nil, err
@@ -343,15 +345,19 @@ func (api *Api) ChatConversation(ctx context.Context, req *ChatConversationReque
 	msgChan := make(chan StreamMessage)
 
 	go func() {
+		defer func() {
+			close(msgChan)
+		}()
+
 		for !resp.Close {
-			line, err := reader.ReadBytes('\n')
+			line, err := reader.ReadString('\n')
 			if err != nil && errors.Is(err, io.EOF) {
 				break
 			} else if err != nil {
 				msgChan <- StreamMessage{Type: StreamMessageTypeError, Error: err}
 				break
 			}
-			data := strings.TrimSpace(string(line))
+			data := strings.TrimSpace(line)
 			if data == "" {
 				continue
 			}
@@ -365,7 +371,6 @@ func (api *Api) ChatConversation(ctx context.Context, req *ChatConversationReque
 
 			msgChan <- msg
 		}
-		close(msgChan)
 	}()
 
 	return &ChatConversationResponse{Stream: msgChan}, nil

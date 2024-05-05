@@ -60,6 +60,9 @@ func ChatCompletions(w http.ResponseWriter, r *http.Request) {
 		config.Logger.Error(err)
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
+	} else if len(convs) == 0 {
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
 	}
 	convID := stlslices.Random(convs).ID
 
@@ -89,50 +92,135 @@ func ChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var reply string
-	for msg := range chatResp.Stream {
-		switch msg.Type {
-		case api.StreamMessageTypeError:
+	if !req.Stream {
+		var reply string
+		for msg := range chatResp.Stream {
+			switch msg.Type {
+			case api.StreamMessageTypeError:
+				config.Logger.Error(err)
+				http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+				return
+			case api.StreamMessageTypeFinalAnswer:
+				if msg.Text != nil {
+					reply = *msg.Text
+				}
+				break
+			case api.StreamMessageTypeStatus, api.StreamMessageTypeStream:
+			default:
+				config.Logger.Warnf("unknown stream msg type `%s`", msg.Type)
+			}
+		}
+
+		data, err := json.Marshal(&openai.ChatCompletionResponse{
+			ID:      msgID,
+			Object:  "chat.completion",
+			Created: time.Now().Unix(),
+			Model:   convInfo.Model,
+			Choices: []openai.ChatCompletionChoice{
+				{
+					Index: 0,
+					Message: openai.ChatCompletionMessage{
+						Role:    "assistant",
+						Content: reply,
+					},
+					FinishReason: "stop",
+				},
+			},
+		})
+		if err != nil {
 			config.Logger.Error(err)
 			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 			return
-		case api.StreamMessageTypeFinalAnswer:
-			if msg.Text != nil {
-				reply = *msg.Text
-			}
-			break
-		case api.StreamMessageTypeStatus, api.StreamMessageTypeStream:
-		default:
-			config.Logger.Warnf("unknown stream msg type `%s`", msg.Type)
 		}
-	}
+		w.Header().Set("Content-Type", "application/json")
+		_, err = fmt.Fprint(w, string(data))
+		if err != nil {
+			config.Logger.Error(err)
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
+		}
+	} else {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set("Transfer-Encoding", "chunked")
 
-	data, err := json.Marshal(&openai.ChatCompletionResponse{
-		ID:      msgID,
-		Object:  "chat.completion",
-		Created: time.Now().Unix(),
-		Model:   req.Model,
-		Choices: []openai.ChatCompletionChoice{
-			{
-				Index: 0,
-				Message: openai.ChatCompletionMessage{
-					Role:    "assistant",
-					Content: reply,
-				},
-				FinishReason: "stop",
-			},
-		},
-	})
-	if err != nil {
-		config.Logger.Error(err)
-		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_, err = fmt.Fprint(w, string(data))
-	if err != nil {
-		config.Logger.Error(err)
-		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-		return
+		flusher := w.(http.Flusher)
+
+		for msg := range chatResp.Stream {
+			switch msg.Type {
+			case api.StreamMessageTypeError:
+				config.Logger.Error(err)
+				http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+				return
+			case api.StreamMessageTypeFinalAnswer:
+				data, err := json.Marshal(&openai.ChatCompletionStreamResponse{
+					ID:      msgID,
+					Object:  "chat.completion",
+					Created: time.Now().Unix(),
+					Model:   convInfo.Model,
+					Choices: []openai.ChatCompletionStreamChoice{
+						{
+							Index:        0,
+							FinishReason: "stop",
+						},
+					},
+				})
+				if err != nil {
+					config.Logger.Error(err)
+					http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+					return
+				}
+				_, err = fmt.Fprint(w, "data: "+string(data)+"\n\n")
+				if err != nil {
+					config.Logger.Error(err)
+					http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+					return
+				}
+				flusher.Flush()
+				_, err = fmt.Fprint(w, "data: [DONE]\n\n")
+				if err != nil {
+					config.Logger.Error(err)
+					http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+					return
+				}
+				flusher.Flush()
+			case api.StreamMessageTypeStream:
+				var reply string
+				if msg.Token != nil {
+					reply = *msg.Token
+				}
+				data, err := json.Marshal(&openai.ChatCompletionStreamResponse{
+					ID:      msgID,
+					Object:  "chat.completion",
+					Created: time.Now().Unix(),
+					Model:   convInfo.Model,
+					Choices: []openai.ChatCompletionStreamChoice{
+						{
+							Index: 0,
+							Delta: openai.ChatCompletionStreamChoiceDelta{
+								Role:    "assistant",
+								Content: reply,
+							},
+						},
+					},
+				})
+				if err != nil {
+					config.Logger.Error(err)
+					http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+					return
+				}
+				_, err = fmt.Fprint(w, "data: "+string(data)+"\n")
+				if err != nil {
+					config.Logger.Error(err)
+					http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+					return
+				}
+				flusher.Flush()
+			case api.StreamMessageTypeStatus:
+			default:
+				config.Logger.Warnf("unknown stream msg type `%s`", msg.Type)
+			}
+		}
 	}
 }
