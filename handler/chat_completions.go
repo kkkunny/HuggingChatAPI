@@ -94,6 +94,7 @@ func ChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	if !req.Stream {
 		var reply string
+		var tokenCount uint64
 		for msg := range chatResp.Stream {
 			switch msg.Type {
 			case api.StreamMessageTypeError:
@@ -105,7 +106,9 @@ func ChatCompletions(w http.ResponseWriter, r *http.Request) {
 					reply = *msg.Text
 				}
 				break
-			case api.StreamMessageTypeStatus, api.StreamMessageTypeStream:
+			case api.StreamMessageTypeStream:
+				tokenCount++
+			case api.StreamMessageTypeStatus:
 			default:
 				config.Logger.Warnf("unknown stream msg type `%s`", msg.Type)
 			}
@@ -125,6 +128,11 @@ func ChatCompletions(w http.ResponseWriter, r *http.Request) {
 					},
 					FinishReason: "stop",
 				},
+			},
+			Usage: openai.Usage{
+				PromptTokens:     0,
+				CompletionTokens: int(tokenCount),
+				TotalTokens:      int(tokenCount),
 			},
 		})
 		if err != nil {
