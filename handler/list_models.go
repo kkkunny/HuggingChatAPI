@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	stlslices "github.com/kkkunny/stl/container/slices"
+	"github.com/sashabaranov/go-openai"
 
 	"github.com/kkkunny/HuggingChatAPI/internal/api"
 	"github.com/kkkunny/HuggingChatAPI/internal/config"
@@ -23,14 +24,13 @@ func ListModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data, err := json.Marshal(map[string]any{
-		"object": "list",
-		"data": stlslices.Map(models, func(_ int, model *api.ModelInfo) map[string]any {
-			return map[string]any{
-				"id":       model.ID,
-				"object":   "model",
-				"created":  1692901427,
-				"owned_by": "system",
+	data, err := json.Marshal(&openai.ModelsList{
+		Models: stlslices.Map(models, func(_ int, model *api.ModelInfo) openai.Model {
+			return openai.Model{
+				CreatedAt: 1692901427,
+				ID:        model.ID,
+				Object:    "model",
+				OwnedBy:   "system",
 			}
 		}),
 	})
@@ -39,11 +39,11 @@ func ListModels(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
+	w.Header().Set("Content-Type", "application/json")
 	_, err = fmt.Fprint(w, string(data))
 	if err != nil {
 		config.Logger.Error(err)
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
 }
