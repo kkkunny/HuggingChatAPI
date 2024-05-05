@@ -60,7 +60,11 @@ func ChatCompletions(w http.ResponseWriter, r *http.Request) {
 		config.Logger.Error(err)
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
-	} else if len(convs) == 0 {
+	}
+	convs = stlslices.Filter(convs, func(_ int, conv *api.SimpleConversationInfo) bool {
+		return conv.Model == req.Model
+	})
+	if len(convs) == 0 {
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
