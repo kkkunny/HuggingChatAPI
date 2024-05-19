@@ -22,7 +22,7 @@ import (
 
 func ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-	cli := api.NewAPI(consts.HuggingChatDomain, token, nil)
+	cli := api.NewAPI(consts.HuggingChatDomain, token, config.Proxy)
 
 	var req openai.ChatCompletionRequest
 	body, err := io.ReadAll(r.Body)

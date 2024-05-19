@@ -16,7 +16,7 @@ import (
 
 func ListModels(w http.ResponseWriter, r *http.Request) {
 	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-	cli := api.NewAPI(consts.HuggingChatDomain, token, nil)
+	cli := api.NewAPI(consts.HuggingChatDomain, token, config.Proxy)
 	models, err := cli.ListModels(r.Context())
 	if err != nil {
 		config.Logger.Error(err)
