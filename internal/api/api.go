@@ -288,13 +288,14 @@ func (api *Api) ConversationInfo(ctx context.Context, req *ConversationInfoReque
 }
 
 type ChatConversationRequest struct {
-	ConversationID string `json:"-"`
-	Files          []any  `json:"files"`
-	ID             string `json:"id"`
-	Inputs         string `json:"inputs"`
-	IsContinue     bool   `json:"is_continue"`
-	IsRetry        bool   `json:"is_retry"`
-	WebSearch      bool   `json:"web_search"`
+	ConversationID string   `json:"-"`
+	Files          []any    `json:"files,omitempty"`
+	ID             string   `json:"id"`
+	Inputs         string   `json:"inputs"`
+	IsContinue     bool     `json:"is_continue"`
+	IsRetry        bool     `json:"is_retry"`
+	WebSearch      bool     `json:"web_search"`
+	Tools          struct{} `json:"tools"`
 }
 
 type ChatConversationResponse struct {
@@ -327,12 +328,26 @@ type StreamMessage struct {
 }
 
 func (api *Api) ChatConversation(ctx context.Context, req *ChatConversationRequest) (*ChatConversationResponse, error) {
-	req.Files = make([]any, 0)
+	reqBody, err := json.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
 	urlStr := fmt.Sprintf("%s/chat/conversation/%s", api.domain, req.ConversationID)
 	resp, err := api.client.R().
 		SetContext(ctx).
-		SetBodyJsonMarshal(req).
-		SetHeader("Accept", "*/*").
+		SetHeaders(map[string]string{
+			"authority":          "huggingface.co",
+			"accept":             "*/*",
+			"accept-language":    "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
+			"origin":             "https://huggingface.co",
+			"sec-ch-ua":          "\"Not/A)Brand\";v=\"8\", \"Chromium\";v=\"126\", \"Microsoft Edge\";v=\"126\"",
+			"sec-ch-ua-mobile":   "?0",
+			"sec-ch-ua-platform": "\"Windows\"",
+			"sec-fetch-dest":     "empty",
+			"sec-fetch-mode":     "cors",
+			"sec-fetch-site":     "same-origin",
+		}).
+		SetFormData(map[string]string{"data": string(reqBody)}).
 		DisableAutoReadResponse().
 		Post(urlStr)
 	if err != nil {

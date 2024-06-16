@@ -212,7 +212,7 @@ func ChatCompletions(w http.ResponseWriter, r *http.Request) {
 							Index: 0,
 							Delta: openai.ChatCompletionStreamChoiceDelta{
 								Role:    "assistant",
-								Content: reply,
+								Content: strings.TrimRight(reply, "\u0000"),
 							},
 						},
 					},
