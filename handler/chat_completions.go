@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	stlbasic "github.com/kkkunny/stl/basic"
 	stlslices "github.com/kkkunny/stl/container/slices"
+	stlval "github.com/kkkunny/stl/value"
 
 	"github.com/satori/go.uuid"
 
@@ -84,7 +84,7 @@ func ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 	prompt := fmt.Sprintf("%s\nassistant: ", strings.Join(msgStrList, ""))
 
-	msgID := stlbasic.Ternary(stlslices.Last(convInfo.Messages).From != "system", stlslices.Last(convInfo.Messages).ID, uuid.NewV4().String())
+	msgID := stlval.Ternary(stlslices.Last(convInfo.Messages).From != "system", stlslices.Last(convInfo.Messages).ID, uuid.NewV4().String())
 	chatResp, err := cli.ChatConversation(r.Context(), &api.ChatConversationRequest{
 		ConversationID: convID,
 		ID:             msgID,
