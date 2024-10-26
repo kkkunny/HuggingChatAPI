@@ -288,14 +288,14 @@ func (api *Api) ConversationInfo(ctx context.Context, req *ConversationInfoReque
 }
 
 type ChatConversationRequest struct {
-	ConversationID string   `json:"-"`
-	Files          []any    `json:"files,omitempty"`
-	ID             string   `json:"id"`
-	Inputs         string   `json:"inputs"`
-	IsContinue     bool     `json:"is_continue"`
-	IsRetry        bool     `json:"is_retry"`
-	WebSearch      bool     `json:"web_search"`
-	Tools          struct{} `json:"tools"`
+	ConversationID string `json:"-"`
+	Files          []any  `json:"files,omitempty"`
+	ID             string `json:"id"`
+	Inputs         string `json:"inputs"`
+	IsContinue     bool   `json:"is_continue"`
+	IsRetry        bool   `json:"is_retry"`
+	WebSearch      bool   `json:"web_search"`
+	Tools          []any  `json:"tools"`
 }
 
 type ChatConversationResponse struct {
@@ -328,6 +328,7 @@ type StreamMessage struct {
 }
 
 func (api *Api) ChatConversation(ctx context.Context, req *ChatConversationRequest) (*ChatConversationResponse, error) {
+	req.Tools = make([]any, 0)
 	reqBody, err := json.Marshal(req)
 	if err != nil {
 		return nil, err
