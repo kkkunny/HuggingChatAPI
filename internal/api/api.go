@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -149,7 +150,6 @@ func (api *Api) ListConversations(ctx context.Context) (resp []*SimpleConversati
 	urlStr := fmt.Sprintf("%s/chat/models/__data.json?x-sveltekit-invalidated=10", api.domain)
 	httpResp, err := api.client.R().
 		SetContext(ctx).
-		SetSuccessResult(make(map[string]any)).
 		Get(urlStr)
 	if err != nil {
 		return nil, err
@@ -163,35 +163,44 @@ func (api *Api) ListConversations(ctx context.Context) (resp []*SimpleConversati
 		}
 	}()
 
-	rawResp := *httpResp.SuccessResult().(*map[string]any)
-	data := rawResp["nodes"].([]any)[0].(map[string]any)["data"].([]any)
-
-	indexMap := data[0].(map[string]any)
-	conversationsIndex := int64(indexMap["conversations"].(float64))
-	conversationIndexObjList := data[conversationsIndex].([]any)
-	conversationInfos := stlslices.Map(conversationIndexObjList, func(_ int, conversationIndexObj any) *SimpleConversationInfo {
-		conversationIdx := int64(conversationIndexObj.(float64))
-		conversationMetaInfo := data[conversationIdx].(map[string]any)
-
-		idIndex := int64(conversationMetaInfo["id"].(float64))
-		titleIndex := int64(conversationMetaInfo["title"].(float64))
-		modelIndex := int64(conversationMetaInfo["model"].(float64))
-		updatedAtIndex := int64(conversationMetaInfo["updatedAt"].(float64))
-
-		id := data[idIndex].(string)
-		title := data[titleIndex].(string)
-		model := data[modelIndex].(string)
-		updatedAtStr := data[updatedAtIndex].([]any)[1].(string)
-		updatedAt, _ := time.Parse(time.RFC3339, updatedAtStr)
-
-		return &SimpleConversationInfo{
-			ID:        id,
-			Title:     title,
-			Model:     model,
-			UpdatedAt: updatedAt,
+	rawStr := "[" + regexp.MustCompile(`}\s*{`).ReplaceAllString(httpResp.String(), "},{") + "]"
+	var rawResp []map[string]any
+	err = json.Unmarshal([]byte(rawStr), &rawResp)
+	if err != nil {
+		return nil, err
+	}
+	for _, rawRespItem := range rawResp {
+		if rawRespItem["type"] != "chunk" || fmt.Sprintf("%v", rawRespItem["id"]) != "1" {
+			continue
 		}
-	})
-	return conversationInfos, nil
+
+		data := rawRespItem["data"].([]any)
+		conversationIndexObjList := data[0].([]any)
+		conversationInfos := stlslices.Map(conversationIndexObjList, func(_ int, conversationIndexObj any) *SimpleConversationInfo {
+			conversationIdx := int64(conversationIndexObj.(float64))
+			conversationMetaInfo := data[conversationIdx].(map[string]any)
+
+			idIndex := int64(conversationMetaInfo["id"].(float64))
+			titleIndex := int64(conversationMetaInfo["title"].(float64))
+			modelIndex := int64(conversationMetaInfo["model"].(float64))
+			updatedAtIndex := int64(conversationMetaInfo["updatedAt"].(float64))
+
+			id := data[idIndex].(string)
+			title := data[titleIndex].(string)
+			model := data[modelIndex].(string)
+			updatedAtStr := data[updatedAtIndex].([]any)[1].(string)
+			updatedAt, _ := time.Parse(time.RFC3339, updatedAtStr)
+
+			return &SimpleConversationInfo{
+				ID:        id,
+				Title:     title,
+				Model:     model,
+				UpdatedAt: updatedAt,
+			}
+		})
+		return conversationInfos, nil
+	}
+	return nil, errors.New("not found conversion data")
 }
 
 type ConversationInfoRequest struct {
