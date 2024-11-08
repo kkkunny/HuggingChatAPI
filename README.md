@@ -95,7 +95,7 @@ curl -X POST "http://localhost:5695/v1/chat/completions" \
 如果不想使用 Docker Compose，可以直接运行以下命令：
 
 ```bash
-docker run -d --name HuggingChat -p 5695:80 chb2024/huggingchatapi:latest
+docker run -d --name HuggingChat -p 5695:80 kkkunny/hugging-chat-api:latest
 ```
 
 ### 使用 Koyeb 一键部署

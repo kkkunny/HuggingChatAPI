@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   huggingchat:
-    image: chb2024/huggingchatapi:latest
+    image: kkkunny/hugging-chat-api:latest
     container_name: HuggingChat
     ports:
       - "5695:80"  # 5695为映射后的端口，可改为未占用的端口；80为程序端口（不可改）
