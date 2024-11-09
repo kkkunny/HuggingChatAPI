@@ -17,24 +17,34 @@ import (
 
 	"github.com/kkkunny/HuggingChatAPI/internal/api"
 	"github.com/kkkunny/HuggingChatAPI/internal/config"
-	"github.com/kkkunny/HuggingChatAPI/internal/consts"
 )
 
 func ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-	cli := api.NewAPI(consts.HuggingChatDomain, token, config.Proxy)
+	cli, err := api.NewAPI(config.HuggingChatDomain, token)
+	if err != nil {
+		config.Logger.Error(err)
+		http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+		return
+	}
+	err = cli.RefreshCookie(r.Context())
+	if err != nil {
+		config.Logger.Error(err)
+		http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+		return
+	}
 
 	var req openai.ChatCompletionRequest
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		config.Logger.Error(err)
-		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
 	err = json.Unmarshal(body, &req)
 	if err != nil {
 		config.Logger.Error(err)
-		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
 
@@ -128,7 +138,7 @@ func chatCompletionsNoStream(w http.ResponseWriter, msgID string, convInfo *api.
 					Type: openai.ChatMessagePartTypeImageURL,
 					ImageURL: &openai.ChatMessageImageURL{
 						Detail: openai.ImageURLDetailAuto,
-						URL:    fmt.Sprintf("%s/chat/conversation/%s/output/%s", consts.HuggingChatDomain, convInfo.ConversationID, *msg.SHA),
+						URL:    fmt.Sprintf("%s/chat/conversation/%s/output/%s", config.HuggingChatDomain, convInfo.ConversationID, *msg.SHA),
 					},
 				})
 			}
