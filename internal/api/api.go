@@ -3,12 +3,12 @@ package api
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -18,18 +18,77 @@ import (
 )
 
 type Api struct {
-	domain string
-	client *req.Client
+	domain    string
+	client    *req.Client
+	cookieMgr cookieMgr
 }
 
-func NewAPI(domain string, token string, proxy func(*http.Request) (*url.URL, error)) *Api {
-	return &Api{
+func NewAPI(domain string, token string) (*Api, error) {
+	api := &Api{
 		domain: domain,
-		client: req.C().
-			SetProxy(proxy).
-			SetCommonCookies(&http.Cookie{Name: "hf-chat", Value: token}).
-			SetUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0"),
+		client: globalClient.Clone().
+			SetCommonHeader("origin", domain),
 	}
+	err := api.SetToken(token)
+	return api, err
+}
+
+func (api *Api) SetToken(token string) error {
+	account, err := base64.StdEncoding.DecodeString(token)
+	if err == nil {
+		res := regexp.MustCompile(`username=(.+?)&password=(.+)`).FindStringSubmatch(string(account))
+		if len(res) != 3 {
+			return errors.New("invalid token")
+		}
+		api.cookieMgr = newAccountCookieMgr(res[1], res[2])
+		return nil
+	}
+	api.cookieMgr = newTokenCookieMgr(token)
+	return nil
+}
+
+func (api *Api) RefreshCookie(ctx context.Context) error {
+	cookies, err := api.cookieMgr.Cookies(ctx)
+	if err != nil {
+		return err
+	}
+	api.client.ClearCookies().SetCommonCookies(cookies...)
+
+	isLogin, err := api.CheckLogin(ctx)
+	if err != nil {
+		return err
+	} else if isLogin {
+		return nil
+	}
+
+	cookies, err = api.cookieMgr.Refresh(ctx)
+	if err != nil {
+		return err
+	}
+	api.client.ClearCookies().SetCommonCookies(cookies...)
+
+	isLogin, err = api.CheckLogin(ctx)
+	if err != nil {
+		return err
+	} else if isLogin {
+		return nil
+	}
+	return errors.New("login failed")
+}
+
+func (api *Api) CheckLogin(ctx context.Context) (bool, error) {
+	httpResp, err := api.client.R().
+		SetContext(ctx).
+		SetHeaders(map[string]string{
+			"accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+		}).
+		Get(fmt.Sprintf("%s/chat/", api.domain))
+	if err != nil {
+		return false, err
+	} else if httpResp.GetStatusCode() != http.StatusOK {
+		return false, fmt.Errorf("http error: code=%d, status=%s", httpResp.GetStatusCode(), httpResp.GetStatus())
+	}
+	return !strings.Contains(httpResp.String(), "action=\"/chat/login\""), nil
 }
 
 type ModelInfo struct {
@@ -41,11 +100,10 @@ type ModelInfo struct {
 }
 
 func (api *Api) ListModels(ctx context.Context) (resp []*ModelInfo, err error) {
-	urlStr := fmt.Sprintf("%s/chat/models/__data.json?x-sveltekit-invalidated=10", api.domain)
 	httpResp, err := api.client.R().
 		SetContext(ctx).
 		SetSuccessResult(make(map[string]any)).
-		Get(urlStr)
+		Get(fmt.Sprintf("%s/chat/models/__data.json?x-sveltekit-invalidated=10", api.domain))
 	if err != nil {
 		return nil, err
 	} else if httpResp.GetStatusCode() != http.StatusOK {
@@ -107,12 +165,11 @@ type CreateConversationResponse struct {
 }
 
 func (api *Api) CreateConversation(ctx context.Context, req *CreateConversationRequest) (*CreateConversationResponse, error) {
-	urlStr := fmt.Sprintf("%s/chat/conversation", api.domain)
 	httpResp, err := api.client.R().
 		SetContext(ctx).
 		SetBodyJsonMarshal(req).
 		SetSuccessResult(CreateConversationResponse{}).
-		Post(urlStr)
+		Post(fmt.Sprintf("%s/chat/conversation", api.domain))
 	if err != nil {
 		return nil, err
 	} else if httpResp.GetStatusCode() != http.StatusOK {
@@ -127,10 +184,9 @@ type DeleteConversationRequest struct {
 }
 
 func (api *Api) DeleteConversation(ctx context.Context, req *DeleteConversationRequest) error {
-	urlStr := fmt.Sprintf("%s/chat/conversation/%s", api.domain, req.ConversationID)
 	httpResp, err := api.client.R().
 		SetContext(ctx).
-		Delete(urlStr)
+		Delete(fmt.Sprintf("%s/chat/conversation/%s", api.domain, req.ConversationID))
 	if err != nil {
 		return err
 	} else if httpResp.GetStatusCode() != http.StatusOK {
@@ -147,10 +203,9 @@ type SimpleConversationInfo struct {
 }
 
 func (api *Api) ListConversations(ctx context.Context) (resp []*SimpleConversationInfo, err error) {
-	urlStr := fmt.Sprintf("%s/chat/models/__data.json?x-sveltekit-invalidated=10", api.domain)
 	httpResp, err := api.client.R().
 		SetContext(ctx).
-		Get(urlStr)
+		Get(fmt.Sprintf("%s/chat/models/__data.json?x-sveltekit-invalidated=10", api.domain))
 	if err != nil {
 		return nil, err
 	} else if httpResp.GetStatusCode() != http.StatusOK {
@@ -225,11 +280,10 @@ type Message struct {
 }
 
 func (api *Api) ConversationInfo(ctx context.Context, req *ConversationInfoRequest) (resp *ConversationInfoResponse, err error) {
-	urlStr := fmt.Sprintf("%s/chat/conversation/%s/__data.json?x-sveltekit-invalidated=01", api.domain, req.ConversationID)
 	httpResp, err := api.client.R().
 		SetContext(ctx).
 		SetSuccessResult(make(map[string]any)).
-		Get(urlStr)
+		Get(fmt.Sprintf("%s/chat/conversation/%s/__data.json?x-sveltekit-invalidated=01", api.domain, req.ConversationID))
 	if err != nil {
 		return nil, err
 	} else if httpResp.GetStatusCode() != http.StatusOK {
@@ -374,7 +428,7 @@ func (api *Api) ChatConversation(ctx context.Context, req *ChatConversationReque
 	if err != nil {
 		return nil, err
 	}
-	urlStr := fmt.Sprintf("%s/chat/conversation/%s", api.domain, req.ConversationID)
+
 	resp, err := api.client.R().
 		SetContext(ctx).
 		SetHeaders(map[string]string{
@@ -391,7 +445,7 @@ func (api *Api) ChatConversation(ctx context.Context, req *ChatConversationReque
 		}).
 		SetFormData(map[string]string{"data": string(reqBody)}).
 		DisableAutoReadResponse().
-		Post(urlStr)
+		Post(fmt.Sprintf("%s/chat/conversation/%s", api.domain, req.ConversationID))
 	if err != nil {
 		return nil, err
 	} else if resp.GetStatusCode() != http.StatusOK {

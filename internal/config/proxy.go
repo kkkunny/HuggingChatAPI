@@ -4,19 +4,18 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+
+	stlerr "github.com/kkkunny/stl/error"
+	stlval "github.com/kkkunny/stl/value"
 )
 
-var Proxy = func() func(*http.Request) (*url.URL, error) {
-	proxy := os.Getenv("https_proxy")
-	if proxy == "" {
-		proxy = os.Getenv("HTTPS_PROXY")
-		if proxy == "" {
-			return nil
-		}
+var Proxy func(*http.Request) (*url.URL, error)
+
+func init() {
+	proxyStr := stlval.Ternary(os.Getenv("https_proxy") != "", os.Getenv("https_proxy"), os.Getenv("HTTPS_PROXY"))
+	if proxyStr == "" {
+		return
 	}
-	proxyUrl, err := url.Parse(proxy)
-	if err != nil {
-		panic(err)
-	}
-	return http.ProxyURL(proxyUrl)
-}()
+	proxy := stlerr.MustWith(url.Parse(proxyStr))
+	Proxy = http.ProxyURL(proxy)
+}

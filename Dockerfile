@@ -14,6 +14,7 @@ RUN apk --no-cache add tzdata && \
 ENV TZ Asia/Shanghai
 RUN apk add --no-cache ca-certificates && update-ca-certificates
 WORKDIR /app
+RUN mkdir config
 COPY --from=builder /app/bin/* /app
 EXPOSE 80
 ENTRYPOINT ["/app/server"]

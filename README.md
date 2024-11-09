@@ -4,13 +4,15 @@
 
 ## 使用说明
 
-1. **访问 HuggingChat 官网**  
-   进入 [HuggingChat官网](https://huggingface.co/chat) 并登录。
+1. **获取 Authorization**  
+   以下两种方式任选其一！
 
-2. **获取 Authorization**  
-   从浏览器的 Cookie 中取出 `hf-chat` 的值，作为 Authorization。
+   + 使用base64编码`username={你的账号名}&password={你的密码}`，假设你的账号名为usr，密码为pwd，则`username=usr&password=pwd`进行base64编码后结果为`dXNlcm5hbWU9dXNyJnBhc3N3b3JkPXB3ZA==`
+   + 进入 [HuggingChat官网](https://huggingface.co/chat) 并登录，从浏览器的 Cookie 中取出 `hf-chat` 的值，形如`cc43f26e-142b-409f-b228-68316s5x30a9`
 
-3. **会话创建注意事项**  
+   将上面任意一种方式获得的值填入Authorization
+
+2. **！！注意事项！！会话创建**  
    由于调用创建会话的接口创建出的会话总是呈不可用状态，因此需要提前为每个模型创建好会话。
 
 ## 调用说明
@@ -96,6 +98,12 @@ curl -X POST "http://localhost:5695/v1/chat/completions" \
 
 ```bash
 docker run -d --name HuggingChat -p 5695:80 kkkunny/hugging-chat-api:latest
+```
+
+强烈建议将/app/config映射到本地路径
+
+```bash
+docker run -d --name HuggingChat -p 5695:80 -v YOUR_PATH:/app/config kkkunny/hugging-chat-api:latest
 ```
 
 ### 使用 Koyeb 一键部署

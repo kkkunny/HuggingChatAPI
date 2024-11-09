@@ -11,12 +11,23 @@ import (
 
 	"github.com/kkkunny/HuggingChatAPI/internal/api"
 	"github.com/kkkunny/HuggingChatAPI/internal/config"
-	"github.com/kkkunny/HuggingChatAPI/internal/consts"
 )
 
 func ListModels(w http.ResponseWriter, r *http.Request) {
 	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-	cli := api.NewAPI(consts.HuggingChatDomain, token, config.Proxy)
+	cli, err := api.NewAPI(config.HuggingChatDomain, token)
+	if err != nil {
+		config.Logger.Error(err)
+		http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+		return
+	}
+	err = cli.RefreshCookie(r.Context())
+	if err != nil {
+		config.Logger.Error(err)
+		http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+		return
+	}
+
 	models, err := cli.ListModels(r.Context())
 	if err != nil {
 		config.Logger.Error(err)
