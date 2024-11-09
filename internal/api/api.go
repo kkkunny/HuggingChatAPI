@@ -103,7 +103,6 @@ type ModelInfo struct {
 func (api *Api) ListModels(ctx context.Context) (resp []*ModelInfo, err error) {
 	httpResp, err := stlerr.ErrorWith(api.client.R().
 		SetContext(ctx).
-		SetSuccessResult(make(map[string]any)).
 		Get(fmt.Sprintf("%s/chat/models/__data.json?x-sveltekit-invalidated=10", api.domain)))
 	if err != nil {
 		return nil, err
@@ -111,49 +110,53 @@ func (api *Api) ListModels(ctx context.Context) (resp []*ModelInfo, err error) {
 		return nil, stlerr.Errorf("http error: code=%d, status=%s", httpResp.GetStatusCode(), httpResp.String())
 	}
 
-	defer func() {
-		if panicErr := recover(); panicErr != nil {
-			err = stlerr.Errorf("parse resp error: err=%+v", panicErr)
-		}
-	}()
+	rawStr := "[" + regexp.MustCompile(`}\s*{`).ReplaceAllString(httpResp.String(), "},{") + "]"
+	var rawResp []map[string]any
+	err = stlerr.ErrorWrap(json.Unmarshal([]byte(rawStr), &rawResp))
+	if err != nil {
+		return nil, err
+	}
 
-	rawResp := *httpResp.SuccessResult().(*map[string]any)
-	data := rawResp["nodes"].([]any)[0].(map[string]any)["data"].([]any)
-
-	indexMap := data[0].(map[string]any)
-	modelsIndex := int64(indexMap["models"].(float64))
-	modelIndexObjList := data[modelsIndex].([]any)
-	models := stlslices.Map(modelIndexObjList, func(_ int, modelIndexObj any) *ModelInfo {
-		modelIdx := int64(modelIndexObj.(float64))
-		modelMetaInfo := data[modelIdx].(map[string]any)
-
-		idIndex := int64(modelMetaInfo["id"].(float64))
-		nameIndex := int64(modelMetaInfo["name"].(float64))
-		descriptionIndex := int64(modelMetaInfo["description"].(float64))
-		parametersIndex := int64(modelMetaInfo["parameters"].(float64))
-		unlistedIndex := int64(modelMetaInfo["unlisted"].(float64))
-
-		id := data[idIndex].(string)
-		name := data[nameIndex].(string)
-		unlisted := data[unlistedIndex].(bool)
-		var desc string
-		var maxNewTokens int64
-		if !unlisted {
-			desc = data[descriptionIndex].(string)
-			parameters := data[parametersIndex].(map[string]any)
-			max_new_tokensIndex := int64(parameters["max_new_tokens"].(float64))
-			maxNewTokens = int64(data[max_new_tokensIndex].(float64))
+	for _, rawRespItem := range rawResp {
+		if rawRespItem["type"] != "data" {
+			continue
 		}
 
-		return &ModelInfo{
-			ID:           id,
-			Name:         name,
-			Desc:         desc,
-			MaxNewTokens: maxNewTokens,
-			Active:       !unlisted,
-		}
-	})
-	return models, nil
+		data := rawRespItem["nodes"].([]any)[0].(map[string]any)["data"].([]any)
+		modelIndexObjList := data[int64(data[0].(map[string]any)["models"].(float64))].([]any)
+		models := stlslices.Map(modelIndexObjList, func(_ int, modelIndexObj any) *ModelInfo {
+			modelIdx := int64(modelIndexObj.(float64))
+			modelMetaInfo := data[modelIdx].(map[string]any)
+
+			idIndex := int64(modelMetaInfo["id"].(float64))
+			nameIndex := int64(modelMetaInfo["name"].(float64))
+			descriptionIndex := int64(modelMetaInfo["description"].(float64))
+			parametersIndex := int64(modelMetaInfo["parameters"].(float64))
+			unlistedIndex := int64(modelMetaInfo["unlisted"].(float64))
+
+			id := data[idIndex].(string)
+			name := data[nameIndex].(string)
+			unlisted := data[unlistedIndex].(bool)
+			var desc string
+			var maxNewTokens int64
+			if !unlisted {
+				desc = data[descriptionIndex].(string)
+				parameters := data[parametersIndex].(map[string]any)
+				maxNewTokensIndex := int64(parameters["max_new_tokens"].(float64))
+				maxNewTokens = int64(data[maxNewTokensIndex].(float64))
+			}
+
+			return &ModelInfo{
+				ID:           id,
+				Name:         name,
+				Desc:         desc,
+				MaxNewTokens: maxNewTokens,
+				Active:       !unlisted,
+			}
+		})
+		return models, nil
+	}
+	return nil, stlerr.Errorf("not found model data")
 }
 
 type CreateConversationRequest struct {
@@ -212,12 +215,6 @@ func (api *Api) ListConversations(ctx context.Context) (resp []*SimpleConversati
 	} else if httpResp.GetStatusCode() != http.StatusOK {
 		return nil, stlerr.Errorf("http error: code=%d, status=%s", httpResp.GetStatusCode(), httpResp.String())
 	}
-
-	defer func() {
-		if panicErr := recover(); panicErr != nil {
-			err = stlerr.Errorf("parse resp error: err=%+v", panicErr)
-		}
-	}()
 
 	rawStr := "[" + regexp.MustCompile(`}\s*{`).ReplaceAllString(httpResp.String(), "},{") + "]"
 	var rawResp []map[string]any
