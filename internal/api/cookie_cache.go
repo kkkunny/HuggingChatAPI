@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -27,32 +28,32 @@ func newCookieCache() *cookieCache {
 }
 
 func (cache *cookieCache) Load() error {
-	data, err := os.ReadFile(config.CookieCachePath)
-	if err != nil && os.IsNotExist(err) {
+	data, err := stlerr.ErrorWith(os.ReadFile(config.CookieCachePath))
+	if err != nil && errors.Is(err, os.ErrNotExist) {
 		return nil
 	} else if err != nil {
 		return err
 	}
-	err = json.Unmarshal(data, &cache.data)
+	err = stlerr.ErrorWrap(json.Unmarshal(data, &cache.data))
 	return err
 }
 
 func (cache *cookieCache) Save() error {
-	err := os.MkdirAll(filepath.Dir(config.CookieCachePath), 0750)
+	err := stlerr.ErrorWrap(os.MkdirAll(filepath.Dir(config.CookieCachePath), 0750))
 	if err != nil {
 		return err
 	}
-	file, err := os.OpenFile(config.CookieCachePath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0666)
+	file, err := stlerr.ErrorWith(os.OpenFile(config.CookieCachePath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0666))
 	if err != nil {
 		return err
 	}
 	defer file.Close()
 
-	data, err := json.MarshalIndent(cache.data, "", "  ")
+	data, err := stlerr.ErrorWith(json.MarshalIndent(cache.data, "", "  "))
 	if err != nil {
 		return err
 	}
-	_, err = file.Write(data)
+	_, err = stlerr.ErrorWith(file.Write(data))
 	return err
 }
 

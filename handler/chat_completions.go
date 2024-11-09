@@ -3,13 +3,14 @@ package handler
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"time"
 
 	stlslices "github.com/kkkunny/stl/container/slices"
+	stlerr "github.com/kkkunny/stl/error"
 	stlval "github.com/kkkunny/stl/value"
+	"github.com/labstack/echo/v4"
 
 	"github.com/satori/go.uuid"
 
@@ -19,33 +20,23 @@ import (
 	"github.com/kkkunny/HuggingChatAPI/internal/config"
 )
 
-func ChatCompletions(w http.ResponseWriter, r *http.Request) {
-	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+func ChatCompletions(reqCtx echo.Context) error {
+	token := strings.TrimPrefix(reqCtx.Request().Header.Get("Authorization"), "Bearer ")
 	cli, err := api.NewAPI(config.HuggingChatDomain, token)
 	if err != nil {
-		config.Logger.Error(err)
-		http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
-		return
+		_ = config.Logger.Error(err)
+		return echo.ErrUnauthorized
 	}
-	err = cli.RefreshCookie(r.Context())
+	err = cli.RefreshCookie(reqCtx.Request().Context())
 	if err != nil {
-		config.Logger.Error(err)
-		http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
-		return
+		_ = config.Logger.Error(err)
+		return echo.ErrUnauthorized
 	}
 
 	var req openai.ChatCompletionRequest
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		config.Logger.Error(err)
-		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
-		return
-	}
-	err = json.Unmarshal(body, &req)
-	if err != nil {
-		config.Logger.Error(err)
-		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
-		return
+	if err = stlerr.ErrorWrap(reqCtx.Bind(&req)); err != nil {
+		_ = config.Logger.Error(err)
+		return echo.ErrBadRequest
 	}
 
 	// createConvResp, err := cli.CreateConversation(r.Context(), &api.CreateConversationRequest{
@@ -65,26 +56,21 @@ func ChatCompletions(w http.ResponseWriter, r *http.Request) {
 		// }()
 	}()
 
-	convs, err := cli.ListConversations(r.Context())
+	convs, err := cli.ListConversations(reqCtx.Request().Context())
 	if err != nil {
-		config.Logger.Error(err)
-		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-		return
+		return err
 	}
 	convs = stlslices.Filter(convs, func(_ int, conv *api.SimpleConversationInfo) bool {
 		return conv.Model == req.Model
 	})
 	if len(convs) == 0 {
-		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-		return
+		return stlerr.Errorf("not found valid conversation")
 	}
 	convID := stlslices.Random(convs).ID
 
-	convInfo, err := cli.ConversationInfo(r.Context(), &api.ConversationInfoRequest{ConversationID: convID})
+	convInfo, err := cli.ConversationInfo(reqCtx.Request().Context(), &api.ConversationInfoRequest{ConversationID: convID})
 	if err != nil {
-		config.Logger.Error(err)
-		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-		return
+		return err
 	}
 
 	msgStrList := make([]string, len(req.Messages)+1)
@@ -95,27 +81,20 @@ func ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	prompt := fmt.Sprintf("%s\nassistant: ", strings.Join(msgStrList, ""))
 
 	msgID := stlval.Ternary(stlslices.Last(convInfo.Messages).From != "system", stlslices.Last(convInfo.Messages).ID, uuid.NewV4().String())
-	chatResp, err := cli.ChatConversation(r.Context(), &api.ChatConversationRequest{
+	chatResp, err := cli.ChatConversation(reqCtx.Request().Context(), &api.ChatConversationRequest{
 		ConversationID: convID,
 		ID:             msgID,
 		Inputs:         prompt,
 	})
 	if err != nil {
-		config.Logger.Error(err)
-		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-		return
+		return err
 	}
 
 	handler := stlval.Ternary(req.Stream, chatCompletionsWithStream, chatCompletionsNoStream)
-	err = handler(w, msgID, convInfo, chatResp)
-	if err != nil {
-		config.Logger.Error(err)
-		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-		return
-	}
+	return handler(reqCtx, msgID, convInfo, chatResp)
 }
 
-func chatCompletionsNoStream(w http.ResponseWriter, msgID string, convInfo *api.ConversationInfoResponse, resp *api.ChatConversationResponse) error {
+func chatCompletionsNoStream(reqCtx echo.Context, msgID string, convInfo *api.ConversationInfoResponse, resp *api.ChatConversationResponse) error {
 	var tokenCount uint64
 	var contents []openai.ChatMessagePart
 	for msg := range resp.Stream {
@@ -144,7 +123,7 @@ func chatCompletionsNoStream(w http.ResponseWriter, msgID string, convInfo *api.
 			}
 		case api.StreamMessageTypeStatus, api.StreamMessageTypeTool:
 		default:
-			config.Logger.Warnf("unknown stream msg type `%s`", msg.Type)
+			_ = config.Logger.Warnf("unknown stream msg type `%s`", msg.Type)
 		}
 	}
 
@@ -153,7 +132,8 @@ func chatCompletionsNoStream(w http.ResponseWriter, msgID string, convInfo *api.
 		reply = contents[0].Text
 		contents = nil
 	}
-	data, err := json.Marshal(&openai.ChatCompletionResponse{
+
+	return stlerr.ErrorWrap(reqCtx.JSONPretty(http.StatusOK, &openai.ChatCompletionResponse{
 		ID:      msgID,
 		Object:  "chat.completion",
 		Created: time.Now().Unix(),
@@ -174,29 +154,23 @@ func chatCompletionsNoStream(w http.ResponseWriter, msgID string, convInfo *api.
 			CompletionTokens: int(tokenCount),
 			TotalTokens:      int(tokenCount),
 		},
-	})
-	if err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_, err = fmt.Fprint(w, string(data))
-	return err
+	}, "  "))
 }
 
-func chatCompletionsWithStream(w http.ResponseWriter, msgID string, convInfo *api.ConversationInfoResponse, resp *api.ChatConversationResponse) error {
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Transfer-Encoding", "chunked")
+func chatCompletionsWithStream(reqCtx echo.Context, msgID string, convInfo *api.ConversationInfoResponse, resp *api.ChatConversationResponse) error {
+	reqCtx.Response().Header().Set("Content-Type", "text/event-stream")
+	reqCtx.Response().Header().Set("Cache-Control", "no-cache")
+	reqCtx.Response().Header().Set("Connection", "keep-alive")
+	reqCtx.Response().Header().Set("Transfer-Encoding", "chunked")
 
-	flusher := w.(http.Flusher)
+	flusher := reqCtx.Response().Writer.(http.Flusher)
 
 	for msg := range resp.Stream {
 		switch msg.Type {
 		case api.StreamMessageTypeError:
 			return msg.Error
 		case api.StreamMessageTypeFinalAnswer:
-			data, err := json.Marshal(&openai.ChatCompletionStreamResponse{
+			data, err := stlerr.ErrorWith(json.Marshal(&openai.ChatCompletionStreamResponse{
 				ID:      msgID,
 				Object:  "chat.completion",
 				Created: time.Now().Unix(),
@@ -207,16 +181,16 @@ func chatCompletionsWithStream(w http.ResponseWriter, msgID string, convInfo *ap
 						FinishReason: "stop",
 					},
 				},
-			})
+			}))
 			if err != nil {
 				return err
 			}
-			_, err = fmt.Fprint(w, "data: "+string(data)+"\n\n")
+			_, err = stlerr.ErrorWith(fmt.Fprint(reqCtx.Response().Writer, "data: "+string(data)+"\n\n"))
 			if err != nil {
 				return err
 			}
 			flusher.Flush()
-			_, err = fmt.Fprint(w, "data: [DONE]\n\n")
+			_, err = stlerr.ErrorWith(fmt.Fprint(reqCtx.Response().Writer, "data: [DONE]\n\n"))
 			if err != nil {
 				return err
 			}
@@ -226,7 +200,7 @@ func chatCompletionsWithStream(w http.ResponseWriter, msgID string, convInfo *ap
 			if msg.Token != nil {
 				reply = *msg.Token
 			}
-			data, err := json.Marshal(&openai.ChatCompletionStreamResponse{
+			data, err := stlerr.ErrorWith(json.Marshal(&openai.ChatCompletionStreamResponse{
 				ID:      msgID,
 				Object:  "chat.completion",
 				Created: time.Now().Unix(),
@@ -240,18 +214,18 @@ func chatCompletionsWithStream(w http.ResponseWriter, msgID string, convInfo *ap
 						},
 					},
 				},
-			})
+			}))
 			if err != nil {
 				return err
 			}
-			_, err = fmt.Fprint(w, "data: "+string(data)+"\n")
+			_, err = stlerr.ErrorWith(fmt.Fprint(reqCtx.Response().Writer, "data: "+string(data)+"\n"))
 			if err != nil {
 				return err
 			}
 			flusher.Flush()
 		case api.StreamMessageTypeStatus, api.StreamMessageTypeTool, api.StreamMessageTypeFile:
 		default:
-			config.Logger.Warnf("unknown stream msg type `%s`", msg.Type)
+			_ = config.Logger.Warnf("unknown stream msg type `%s`", msg.Type)
 		}
 	}
 	return nil

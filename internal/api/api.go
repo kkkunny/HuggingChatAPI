@@ -15,6 +15,7 @@ import (
 
 	"github.com/imroc/req/v3"
 	stlslices "github.com/kkkunny/stl/container/slices"
+	stlerr "github.com/kkkunny/stl/error"
 )
 
 type Api struct {
@@ -38,7 +39,7 @@ func (api *Api) SetToken(token string) error {
 	if err == nil {
 		res := regexp.MustCompile(`username=(.+?)&password=(.+)`).FindStringSubmatch(string(account))
 		if len(res) != 3 {
-			return errors.New("invalid token")
+			return stlerr.Errorf("invalid token")
 		}
 		api.cookieMgr = newAccountCookieMgr(res[1], res[2])
 		return nil
@@ -73,20 +74,20 @@ func (api *Api) RefreshCookie(ctx context.Context) error {
 	} else if isLogin {
 		return nil
 	}
-	return errors.New("login failed")
+	return stlerr.Errorf("login failed")
 }
 
 func (api *Api) CheckLogin(ctx context.Context) (bool, error) {
-	httpResp, err := api.client.R().
+	httpResp, err := stlerr.ErrorWith(api.client.R().
 		SetContext(ctx).
 		SetHeaders(map[string]string{
 			"accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
 		}).
-		Get(fmt.Sprintf("%s/chat/", api.domain))
+		Get(fmt.Sprintf("%s/chat/", api.domain)))
 	if err != nil {
 		return false, err
 	} else if httpResp.GetStatusCode() != http.StatusOK {
-		return false, fmt.Errorf("http error: code=%d, status=%s", httpResp.GetStatusCode(), httpResp.GetStatus())
+		return false, stlerr.Errorf("http error: code=%d, status=%s", httpResp.GetStatusCode(), httpResp.GetStatus())
 	}
 	return !strings.Contains(httpResp.String(), "action=\"/chat/login\""), nil
 }
@@ -100,19 +101,19 @@ type ModelInfo struct {
 }
 
 func (api *Api) ListModels(ctx context.Context) (resp []*ModelInfo, err error) {
-	httpResp, err := api.client.R().
+	httpResp, err := stlerr.ErrorWith(api.client.R().
 		SetContext(ctx).
 		SetSuccessResult(make(map[string]any)).
-		Get(fmt.Sprintf("%s/chat/models/__data.json?x-sveltekit-invalidated=10", api.domain))
+		Get(fmt.Sprintf("%s/chat/models/__data.json?x-sveltekit-invalidated=10", api.domain)))
 	if err != nil {
 		return nil, err
 	} else if httpResp.GetStatusCode() != http.StatusOK {
-		return nil, fmt.Errorf("http error: code=%d, status=%s", httpResp.GetStatusCode(), httpResp.String())
+		return nil, stlerr.Errorf("http error: code=%d, status=%s", httpResp.GetStatusCode(), httpResp.String())
 	}
 
 	defer func() {
 		if panicErr := recover(); panicErr != nil {
-			err = fmt.Errorf("parse resp error: err=%+v", panicErr)
+			err = stlerr.Errorf("parse resp error: err=%+v", panicErr)
 		}
 	}()
 
@@ -165,15 +166,15 @@ type CreateConversationResponse struct {
 }
 
 func (api *Api) CreateConversation(ctx context.Context, req *CreateConversationRequest) (*CreateConversationResponse, error) {
-	httpResp, err := api.client.R().
+	httpResp, err := stlerr.ErrorWith(api.client.R().
 		SetContext(ctx).
 		SetBodyJsonMarshal(req).
 		SetSuccessResult(CreateConversationResponse{}).
-		Post(fmt.Sprintf("%s/chat/conversation", api.domain))
+		Post(fmt.Sprintf("%s/chat/conversation", api.domain)))
 	if err != nil {
 		return nil, err
 	} else if httpResp.GetStatusCode() != http.StatusOK {
-		return nil, fmt.Errorf("http error: code=%d, status=%s", httpResp.GetStatusCode(), httpResp.String())
+		return nil, stlerr.Errorf("http error: code=%d, status=%s", httpResp.GetStatusCode(), httpResp.String())
 	}
 	conversation := httpResp.SuccessResult().(*CreateConversationResponse)
 	return conversation, nil
@@ -184,13 +185,13 @@ type DeleteConversationRequest struct {
 }
 
 func (api *Api) DeleteConversation(ctx context.Context, req *DeleteConversationRequest) error {
-	httpResp, err := api.client.R().
+	httpResp, err := stlerr.ErrorWith(api.client.R().
 		SetContext(ctx).
-		Delete(fmt.Sprintf("%s/chat/conversation/%s", api.domain, req.ConversationID))
+		Delete(fmt.Sprintf("%s/chat/conversation/%s", api.domain, req.ConversationID)))
 	if err != nil {
 		return err
 	} else if httpResp.GetStatusCode() != http.StatusOK {
-		return fmt.Errorf("http error: code=%d, status=%s", httpResp.GetStatusCode(), httpResp.String())
+		return stlerr.Errorf("http error: code=%d, status=%s", httpResp.GetStatusCode(), httpResp.String())
 	}
 	return nil
 }
@@ -203,24 +204,24 @@ type SimpleConversationInfo struct {
 }
 
 func (api *Api) ListConversations(ctx context.Context) (resp []*SimpleConversationInfo, err error) {
-	httpResp, err := api.client.R().
+	httpResp, err := stlerr.ErrorWith(api.client.R().
 		SetContext(ctx).
-		Get(fmt.Sprintf("%s/chat/models/__data.json?x-sveltekit-invalidated=10", api.domain))
+		Get(fmt.Sprintf("%s/chat/models/__data.json?x-sveltekit-invalidated=10", api.domain)))
 	if err != nil {
 		return nil, err
 	} else if httpResp.GetStatusCode() != http.StatusOK {
-		return nil, fmt.Errorf("http error: code=%d, status=%s", httpResp.GetStatusCode(), httpResp.String())
+		return nil, stlerr.Errorf("http error: code=%d, status=%s", httpResp.GetStatusCode(), httpResp.String())
 	}
 
 	defer func() {
 		if panicErr := recover(); panicErr != nil {
-			err = fmt.Errorf("parse resp error: err=%+v", panicErr)
+			err = stlerr.Errorf("parse resp error: err=%+v", panicErr)
 		}
 	}()
 
 	rawStr := "[" + regexp.MustCompile(`}\s*{`).ReplaceAllString(httpResp.String(), "},{") + "]"
 	var rawResp []map[string]any
-	err = json.Unmarshal([]byte(rawStr), &rawResp)
+	err = stlerr.ErrorWrap(json.Unmarshal([]byte(rawStr), &rawResp))
 	if err != nil {
 		return nil, err
 	}
@@ -255,7 +256,7 @@ func (api *Api) ListConversations(ctx context.Context) (resp []*SimpleConversati
 		})
 		return conversationInfos, nil
 	}
-	return nil, errors.New("not found conversion data")
+	return nil, stlerr.Errorf("not found conversion data")
 }
 
 type ConversationInfoRequest struct {
@@ -280,19 +281,19 @@ type Message struct {
 }
 
 func (api *Api) ConversationInfo(ctx context.Context, req *ConversationInfoRequest) (resp *ConversationInfoResponse, err error) {
-	httpResp, err := api.client.R().
+	httpResp, err := stlerr.ErrorWith(api.client.R().
 		SetContext(ctx).
 		SetSuccessResult(make(map[string]any)).
-		Get(fmt.Sprintf("%s/chat/conversation/%s/__data.json?x-sveltekit-invalidated=01", api.domain, req.ConversationID))
+		Get(fmt.Sprintf("%s/chat/conversation/%s/__data.json?x-sveltekit-invalidated=01", api.domain, req.ConversationID)))
 	if err != nil {
 		return nil, err
 	} else if httpResp.GetStatusCode() != http.StatusOK {
-		return nil, fmt.Errorf("http error: code=%d, status=%s", httpResp.GetStatusCode(), httpResp.String())
+		return nil, stlerr.Errorf("http error: code=%d, status=%s", httpResp.GetStatusCode(), httpResp.String())
 	}
 
 	defer func() {
 		if panicErr := recover(); panicErr != nil {
-			err = fmt.Errorf("parse resp error: err=%+v", panicErr)
+			err = stlerr.Errorf("parse resp error: err=%+v", panicErr)
 		}
 	}()
 
@@ -424,12 +425,12 @@ func (api *Api) ChatConversation(ctx context.Context, req *ChatConversationReque
 	if len(req.Tools) == 0 {
 		req.Tools = make([]string, 0)
 	}
-	reqBody, err := json.Marshal(req)
+	reqBody, err := stlerr.ErrorWith(json.Marshal(req))
 	if err != nil {
 		return nil, err
 	}
 
-	resp, err := api.client.R().
+	resp, err := stlerr.ErrorWith(api.client.R().
 		SetContext(ctx).
 		SetHeaders(map[string]string{
 			"authority":          "huggingface.co",
@@ -445,11 +446,11 @@ func (api *Api) ChatConversation(ctx context.Context, req *ChatConversationReque
 		}).
 		SetFormData(map[string]string{"data": string(reqBody)}).
 		DisableAutoReadResponse().
-		Post(fmt.Sprintf("%s/chat/conversation/%s", api.domain, req.ConversationID))
+		Post(fmt.Sprintf("%s/chat/conversation/%s", api.domain, req.ConversationID)))
 	if err != nil {
 		return nil, err
 	} else if resp.GetStatusCode() != http.StatusOK {
-		return nil, fmt.Errorf("http error: code=%d, status=%s", resp.GetStatusCode(), resp.String())
+		return nil, stlerr.Errorf("http error: code=%d, status=%s", resp.GetStatusCode(), resp.String())
 	}
 
 	reader := bufio.NewReader(resp.Body)
@@ -461,7 +462,7 @@ func (api *Api) ChatConversation(ctx context.Context, req *ChatConversationReque
 		}()
 
 		for !resp.Close {
-			line, err := reader.ReadString('\n')
+			line, err := stlerr.ErrorWith(reader.ReadString('\n'))
 			if err != nil && errors.Is(err, io.EOF) {
 				break
 			} else if err != nil {
@@ -474,7 +475,7 @@ func (api *Api) ChatConversation(ctx context.Context, req *ChatConversationReque
 			}
 
 			var msg StreamMessage
-			err = json.Unmarshal([]byte(data), &msg)
+			err = stlerr.ErrorWrap(json.Unmarshal([]byte(data), &msg))
 			if err != nil {
 				msgChan <- StreamMessage{Type: StreamMessageTypeError, Error: err}
 				break

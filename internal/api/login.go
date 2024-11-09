@@ -7,6 +7,7 @@ import (
 	"net/url"
 
 	"github.com/imroc/req/v3"
+	stlerr "github.com/kkkunny/stl/error"
 	"golang.org/x/exp/maps"
 
 	"github.com/kkkunny/HuggingChatAPI/internal/config"
@@ -61,15 +62,15 @@ type loginResponse struct {
 }
 
 func login(ctx context.Context, cli *req.Client, req *loginRequest) (*loginResponse, error) {
-	resp, err := cli.R().
+	resp, err := stlerr.ErrorWith(cli.R().
 		SetContext(ctx).
 		SetContentType("application/x-www-form-urlencoded").
 		SetBodyString(fmt.Sprintf("username=%s&password=%s", req.Username, req.Password)).
-		Post(fmt.Sprintf("%s/login", config.HuggingChatDomain))
+		Post(fmt.Sprintf("%s/login", config.HuggingChatDomain)))
 	if err != nil {
 		return nil, err
 	} else if resp.GetStatusCode() != http.StatusFound {
-		return nil, fmt.Errorf("http error: code=%d, status=%s", resp.GetStatusCode(), resp.GetStatus())
+		return nil, stlerr.Errorf("http error: code=%d, status=%s", resp.GetStatusCode(), resp.GetStatus())
 	}
 	return &loginResponse{Cookies: resp.Cookies()}, nil
 }
@@ -80,19 +81,19 @@ type chatLoginResponse struct {
 }
 
 func chatLogin(ctx context.Context, cli *req.Client) (*chatLoginResponse, error) {
-	resp, err := cli.R().
+	resp, err := stlerr.ErrorWith(cli.R().
 		SetContext(ctx).
 		SetContentType("application/x-www-form-urlencoded").
 		SetHeaders(map[string]string{
 			"accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
 		}).
-		Post(fmt.Sprintf("%s/chat/login", config.HuggingChatDomain))
+		Post(fmt.Sprintf("%s/chat/login", config.HuggingChatDomain)))
 	if err != nil {
 		return nil, err
 	} else if resp.GetStatusCode() != http.StatusSeeOther {
-		return nil, fmt.Errorf("http error: code=%d, status=%s", resp.GetStatusCode(), resp.GetStatus())
+		return nil, stlerr.Errorf("http error: code=%d, status=%s", resp.GetStatusCode(), resp.GetStatus())
 	}
-	location, err := resp.Location()
+	location, err := stlerr.ErrorWith(resp.Location())
 	if err != nil {
 		return nil, err
 	}
@@ -107,18 +108,18 @@ type authorizeOauthResponse struct {
 }
 
 func authorizeOauth(ctx context.Context, cli *req.Client, urlStr string) (*authorizeOauthResponse, error) {
-	resp, err := cli.R().
+	resp, err := stlerr.ErrorWith(cli.R().
 		SetContext(ctx).
 		SetHeaders(map[string]string{
 			"accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
 		}).
-		Get(urlStr)
+		Get(urlStr))
 	if err != nil {
 		return nil, err
 	} else if resp.GetStatusCode() != http.StatusSeeOther {
-		return nil, fmt.Errorf("http error: code=%d, status=%s", resp.GetStatusCode(), resp.GetStatus())
+		return nil, stlerr.Errorf("http error: code=%d, status=%s", resp.GetStatusCode(), resp.GetStatus())
 	}
-	location, err := resp.Location()
+	location, err := stlerr.ErrorWith(resp.Location())
 	if err != nil {
 		return nil, err
 	}
@@ -130,9 +131,9 @@ type loginCallbackResponse struct {
 }
 
 func loginCallback(ctx context.Context, cli *req.Client, urlStr string) (*loginCallbackResponse, error) {
-	resp, err := cli.R().
+	resp, err := stlerr.ErrorWith(cli.R().
 		SetContext(ctx).
-		Get(urlStr)
+		Get(urlStr))
 	if err != nil {
 		return nil, err
 	} else if resp.GetStatusCode() != http.StatusFound {

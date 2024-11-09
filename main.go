@@ -1,29 +1,26 @@
 package main
 
 import (
-	"net/http"
-
-	"github.com/go-chi/chi/v5"
+	stlerr "github.com/kkkunny/stl/error"
+	"github.com/labstack/echo/v4"
+	"github.com/labstack/gommon/log"
 
 	"github.com/kkkunny/HuggingChatAPI/handler"
 	"github.com/kkkunny/HuggingChatAPI/internal/config"
+	"github.com/kkkunny/HuggingChatAPI/middleware"
 )
 
 func main() {
-	svr := chi.NewRouter()
+	svr := echo.New()
+	svr.HideBanner, svr.HidePort = true, true
+	svr.Logger.SetLevel(log.OFF)
+	svr.IPExtractor = echo.ExtractIPFromRealIPHeader()
 
-	svr.Use(func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			config.Logger.Infof("Method [%s] %s --> %s", r.Method, r.RemoteAddr, r.URL.Path)
-			next.ServeHTTP(w, r)
-		})
-	})
+	svr.Use(middleware.ErrorHandler, middleware.Logger)
 
-	svr.Get("/v1/models", handler.ListModels)
-	svr.Post("/v1/chat/completions", handler.ChatCompletions)
+	svr.GET("/v1/models", handler.ListModels)
+	svr.POST("/v1/chat/completions", handler.ChatCompletions)
 
-	config.Logger.Keywordf("listen http: 0.0.0.0:80")
-	if err := http.ListenAndServe(":80", svr); err != nil {
-		panic(err)
-	}
+	_ = config.Logger.Keywordf("listen http: 0.0.0.0:80")
+	stlerr.Must(svr.Start(":80"))
 }
