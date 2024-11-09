@@ -158,75 +158,81 @@ func chatCompletionsNoStream(reqCtx echo.Context, msgID string, convInfo *api.Co
 }
 
 func chatCompletionsWithStream(reqCtx echo.Context, msgID string, convInfo *api.ConversationInfoResponse, resp *api.ChatConversationResponse) error {
-	reqCtx.Response().Header().Set("Content-Type", "text/event-stream")
-	reqCtx.Response().Header().Set("Cache-Control", "no-cache")
-	reqCtx.Response().Header().Set("Connection", "keep-alive")
-	reqCtx.Response().Header().Set("Transfer-Encoding", "chunked")
+	writer := reqCtx.Response()
+	writer.Header().Set("Content-Type", "text/event-stream")
+	writer.Header().Set("Cache-Control", "no-cache")
+	writer.Header().Set("Connection", "keep-alive")
+	writer.Header().Set("Transfer-Encoding", "chunked")
 
-	flusher := reqCtx.Response().Writer.(http.Flusher)
-
-	for msg := range resp.Stream {
-		switch msg.Type {
-		case api.StreamMessageTypeError:
-			return msg.Error
-		case api.StreamMessageTypeFinalAnswer:
-			data, err := stlerr.ErrorWith(json.Marshal(&openai.ChatCompletionStreamResponse{
-				ID:      msgID,
-				Object:  "chat.completion",
-				Created: time.Now().Unix(),
-				Model:   convInfo.Model,
-				Choices: []openai.ChatCompletionStreamChoice{
-					{
-						Index:        0,
-						FinishReason: "stop",
-					},
-				},
-			}))
-			if err != nil {
-				return err
+	for {
+		select {
+		case <-reqCtx.Request().Context().Done():
+			return stlerr.Errorf("SSE client disconnected")
+		case msg, ok := <-resp.Stream:
+			if !ok {
+				return nil
 			}
-			_, err = stlerr.ErrorWith(fmt.Fprint(reqCtx.Response().Writer, "data: "+string(data)+"\n\n"))
-			if err != nil {
-				return err
-			}
-			flusher.Flush()
-			_, err = stlerr.ErrorWith(fmt.Fprint(reqCtx.Response().Writer, "data: [DONE]\n\n"))
-			if err != nil {
-				return err
-			}
-			flusher.Flush()
-		case api.StreamMessageTypeStream:
-			var reply string
-			if msg.Token != nil {
-				reply = *msg.Token
-			}
-			data, err := stlerr.ErrorWith(json.Marshal(&openai.ChatCompletionStreamResponse{
-				ID:      msgID,
-				Object:  "chat.completion",
-				Created: time.Now().Unix(),
-				Model:   convInfo.Model,
-				Choices: []openai.ChatCompletionStreamChoice{
-					{
-						Index: 0,
-						Delta: openai.ChatCompletionStreamChoiceDelta{
-							Role:    "assistant",
-							Content: strings.TrimRight(reply, "\u0000"),
+			switch msg.Type {
+			case api.StreamMessageTypeError:
+				return msg.Error
+			case api.StreamMessageTypeFinalAnswer:
+				data, err := stlerr.ErrorWith(json.Marshal(&openai.ChatCompletionStreamResponse{
+					ID:      msgID,
+					Object:  "chat.completion",
+					Created: time.Now().Unix(),
+					Model:   convInfo.Model,
+					Choices: []openai.ChatCompletionStreamChoice{
+						{
+							Index:        0,
+							FinishReason: "stop",
 						},
 					},
-				},
-			}))
-			if err != nil {
-				return err
+				}))
+				if err != nil {
+					return err
+				}
+				_, err = stlerr.ErrorWith(fmt.Fprint(writer, "data: "+string(data)+"\n\n"))
+				if err != nil {
+					return err
+				}
+				writer.Flush()
+				_, err = stlerr.ErrorWith(fmt.Fprint(writer, "data: [DONE]\n\n"))
+				if err != nil {
+					return err
+				}
+				writer.Flush()
+			case api.StreamMessageTypeStream:
+				var reply string
+				if msg.Token != nil {
+					reply = *msg.Token
+				}
+				data, err := stlerr.ErrorWith(json.Marshal(&openai.ChatCompletionStreamResponse{
+					ID:      msgID,
+					Object:  "chat.completion",
+					Created: time.Now().Unix(),
+					Model:   convInfo.Model,
+					Choices: []openai.ChatCompletionStreamChoice{
+						{
+							Index: 0,
+							Delta: openai.ChatCompletionStreamChoiceDelta{
+								Role:    "assistant",
+								Content: strings.TrimRight(reply, "\u0000"),
+							},
+						},
+					},
+				}))
+				if err != nil {
+					return err
+				}
+				_, err = stlerr.ErrorWith(fmt.Fprint(writer, "data: "+string(data)+"\n"))
+				if err != nil {
+					return err
+				}
+				writer.Flush()
+			case api.StreamMessageTypeStatus, api.StreamMessageTypeTool, api.StreamMessageTypeFile:
+			default:
+				_ = config.Logger.Warnf("unknown stream msg type `%s`", msg.Type)
 			}
-			_, err = stlerr.ErrorWith(fmt.Fprint(reqCtx.Response().Writer, "data: "+string(data)+"\n"))
-			if err != nil {
-				return err
-			}
-			flusher.Flush()
-		case api.StreamMessageTypeStatus, api.StreamMessageTypeTool, api.StreamMessageTypeFile:
-		default:
-			_ = config.Logger.Warnf("unknown stream msg type `%s`", msg.Type)
 		}
 	}
-	return nil
 }
