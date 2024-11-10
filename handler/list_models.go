@@ -26,7 +26,7 @@ func ListModels(reqCtx echo.Context) error {
 		return echo.ErrUnauthorized
 	}
 
-	models, err := cli.ListModels(reqCtx.Request().Context())
+	models, _, err := cli.ListModelsAndConversations(reqCtx.Request().Context())
 	if err != nil {
 		return err
 	}

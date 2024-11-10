@@ -100,63 +100,93 @@ type ModelInfo struct {
 	Active       bool
 }
 
-func (api *Api) ListModels(ctx context.Context) (resp []*ModelInfo, err error) {
+type SimpleConversationInfo struct {
+	ID        string
+	Model     string
+	Title     string
+	UpdatedAt time.Time
+}
+
+func (api *Api) ListModelsAndConversations(ctx context.Context) ([]*ModelInfo, []*SimpleConversationInfo, error) {
 	httpResp, err := stlerr.ErrorWith(api.client.R().
 		SetContext(ctx).
 		Get(fmt.Sprintf("%s/chat/models/__data.json?x-sveltekit-invalidated=10", api.domain)))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	} else if httpResp.GetStatusCode() != http.StatusOK {
-		return nil, stlerr.Errorf("http error: code=%d, status=%s", httpResp.GetStatusCode(), httpResp.String())
+		return nil, nil, stlerr.Errorf("http error: code=%d, status=%s", httpResp.GetStatusCode(), httpResp.String())
 	}
 
 	rawStr := "[" + regexp.MustCompile(`}\s*{`).ReplaceAllString(httpResp.String(), "},{") + "]"
 	var rawResp []map[string]any
 	err = stlerr.ErrorWrap(json.Unmarshal([]byte(rawStr), &rawResp))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-
+	var models []*ModelInfo
+	var conversations []*SimpleConversationInfo
 	for _, rawRespItem := range rawResp {
-		if rawRespItem["type"] != "data" {
-			continue
+		if rawRespItem["type"] == "data" {
+			data := rawRespItem["nodes"].([]any)[0].(map[string]any)["data"].([]any)
+			modelIndexObjList := data[int64(data[0].(map[string]any)["models"].(float64))].([]any)
+			models = stlslices.Map(modelIndexObjList, func(_ int, modelIndexObj any) *ModelInfo {
+				modelIdx := int64(modelIndexObj.(float64))
+				modelMetaInfo := data[modelIdx].(map[string]any)
+
+				idIndex := int64(modelMetaInfo["id"].(float64))
+				nameIndex := int64(modelMetaInfo["name"].(float64))
+				descriptionIndex := int64(modelMetaInfo["description"].(float64))
+				parametersIndex := int64(modelMetaInfo["parameters"].(float64))
+				unlistedIndex := int64(modelMetaInfo["unlisted"].(float64))
+
+				id := data[idIndex].(string)
+				name := data[nameIndex].(string)
+				unlisted := data[unlistedIndex].(bool)
+				var desc string
+				var maxNewTokens int64
+				if !unlisted {
+					desc = data[descriptionIndex].(string)
+					parameters := data[parametersIndex].(map[string]any)
+					maxNewTokensIndex := int64(parameters["max_new_tokens"].(float64))
+					maxNewTokens = int64(data[maxNewTokensIndex].(float64))
+				}
+
+				return &ModelInfo{
+					ID:           id,
+					Name:         name,
+					Desc:         desc,
+					MaxNewTokens: maxNewTokens,
+					Active:       !unlisted,
+				}
+			})
+		} else if rawRespItem["type"] == "chunk" && fmt.Sprintf("%v", rawRespItem["id"]) == "1" {
+			data := rawRespItem["data"].([]any)
+			conversationIndexObjList := data[0].([]any)
+			conversations = stlslices.Map(conversationIndexObjList, func(_ int, conversationIndexObj any) *SimpleConversationInfo {
+				conversationIdx := int64(conversationIndexObj.(float64))
+				conversationMetaInfo := data[conversationIdx].(map[string]any)
+
+				idIndex := int64(conversationMetaInfo["id"].(float64))
+				titleIndex := int64(conversationMetaInfo["title"].(float64))
+				modelIndex := int64(conversationMetaInfo["model"].(float64))
+				updatedAtIndex := int64(conversationMetaInfo["updatedAt"].(float64))
+
+				id := data[idIndex].(string)
+				title := data[titleIndex].(string)
+				model := data[modelIndex].(string)
+				updatedAtStr := data[updatedAtIndex].([]any)[1].(string)
+				updatedAt, _ := time.Parse(time.RFC3339, updatedAtStr)
+
+				return &SimpleConversationInfo{
+					ID:        id,
+					Title:     title,
+					Model:     model,
+					UpdatedAt: updatedAt,
+				}
+			})
 		}
-
-		data := rawRespItem["nodes"].([]any)[0].(map[string]any)["data"].([]any)
-		modelIndexObjList := data[int64(data[0].(map[string]any)["models"].(float64))].([]any)
-		models := stlslices.Map(modelIndexObjList, func(_ int, modelIndexObj any) *ModelInfo {
-			modelIdx := int64(modelIndexObj.(float64))
-			modelMetaInfo := data[modelIdx].(map[string]any)
-
-			idIndex := int64(modelMetaInfo["id"].(float64))
-			nameIndex := int64(modelMetaInfo["name"].(float64))
-			descriptionIndex := int64(modelMetaInfo["description"].(float64))
-			parametersIndex := int64(modelMetaInfo["parameters"].(float64))
-			unlistedIndex := int64(modelMetaInfo["unlisted"].(float64))
-
-			id := data[idIndex].(string)
-			name := data[nameIndex].(string)
-			unlisted := data[unlistedIndex].(bool)
-			var desc string
-			var maxNewTokens int64
-			if !unlisted {
-				desc = data[descriptionIndex].(string)
-				parameters := data[parametersIndex].(map[string]any)
-				maxNewTokensIndex := int64(parameters["max_new_tokens"].(float64))
-				maxNewTokens = int64(data[maxNewTokensIndex].(float64))
-			}
-
-			return &ModelInfo{
-				ID:           id,
-				Name:         name,
-				Desc:         desc,
-				MaxNewTokens: maxNewTokens,
-				Active:       !unlisted,
-			}
-		})
-		return models, nil
 	}
-	return nil, stlerr.Errorf("not found model data")
+	return models, conversations, nil
 }
 
 type CreateConversationRequest struct {
@@ -197,63 +227,6 @@ func (api *Api) DeleteConversation(ctx context.Context, req *DeleteConversationR
 		return stlerr.Errorf("http error: code=%d, status=%s", httpResp.GetStatusCode(), httpResp.String())
 	}
 	return nil
-}
-
-type SimpleConversationInfo struct {
-	ID        string
-	Model     string
-	Title     string
-	UpdatedAt time.Time
-}
-
-func (api *Api) ListConversations(ctx context.Context) (resp []*SimpleConversationInfo, err error) {
-	httpResp, err := stlerr.ErrorWith(api.client.R().
-		SetContext(ctx).
-		Get(fmt.Sprintf("%s/chat/models/__data.json?x-sveltekit-invalidated=10", api.domain)))
-	if err != nil {
-		return nil, err
-	} else if httpResp.GetStatusCode() != http.StatusOK {
-		return nil, stlerr.Errorf("http error: code=%d, status=%s", httpResp.GetStatusCode(), httpResp.String())
-	}
-
-	rawStr := "[" + regexp.MustCompile(`}\s*{`).ReplaceAllString(httpResp.String(), "},{") + "]"
-	var rawResp []map[string]any
-	err = stlerr.ErrorWrap(json.Unmarshal([]byte(rawStr), &rawResp))
-	if err != nil {
-		return nil, err
-	}
-	for _, rawRespItem := range rawResp {
-		if rawRespItem["type"] != "chunk" || fmt.Sprintf("%v", rawRespItem["id"]) != "1" {
-			continue
-		}
-
-		data := rawRespItem["data"].([]any)
-		conversationIndexObjList := data[0].([]any)
-		conversationInfos := stlslices.Map(conversationIndexObjList, func(_ int, conversationIndexObj any) *SimpleConversationInfo {
-			conversationIdx := int64(conversationIndexObj.(float64))
-			conversationMetaInfo := data[conversationIdx].(map[string]any)
-
-			idIndex := int64(conversationMetaInfo["id"].(float64))
-			titleIndex := int64(conversationMetaInfo["title"].(float64))
-			modelIndex := int64(conversationMetaInfo["model"].(float64))
-			updatedAtIndex := int64(conversationMetaInfo["updatedAt"].(float64))
-
-			id := data[idIndex].(string)
-			title := data[titleIndex].(string)
-			model := data[modelIndex].(string)
-			updatedAtStr := data[updatedAtIndex].([]any)[1].(string)
-			updatedAt, _ := time.Parse(time.RFC3339, updatedAtStr)
-
-			return &SimpleConversationInfo{
-				ID:        id,
-				Title:     title,
-				Model:     model,
-				UpdatedAt: updatedAt,
-			}
-		})
-		return conversationInfos, nil
-	}
-	return nil, stlerr.Errorf("not found conversion data")
 }
 
 type ConversationInfoRequest struct {

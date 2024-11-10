@@ -56,7 +56,7 @@ func ChatCompletions(reqCtx echo.Context) error {
 		// }()
 	}()
 
-	convs, err := cli.ListConversations(reqCtx.Request().Context())
+	_, convs, err := cli.ListModelsAndConversations(reqCtx.Request().Context())
 	if err != nil {
 		return err
 	}
