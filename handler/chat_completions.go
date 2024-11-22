@@ -12,8 +12,6 @@ import (
 	stlval "github.com/kkkunny/stl/value"
 	"github.com/labstack/echo/v4"
 
-	"github.com/satori/go.uuid"
-
 	"github.com/sashabaranov/go-openai"
 
 	"github.com/kkkunny/HuggingChatAPI/internal/api"
@@ -39,39 +37,45 @@ func ChatCompletions(reqCtx echo.Context) error {
 		return echo.ErrBadRequest
 	}
 
-	// createConvResp, err := cli.CreateConversation(r.Context(), &api.CreateConversationRequest{
-	// 	Model: req.Model,
-	// })
-	// if err != nil {
-	// 	config.Logger.Error(err)
-	// 	http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-	// 	return
-	// }
-	defer func() {
-		// go func() {
-		// 	delErr := cli.DeleteConversation(r.Context(), &api.DeleteConversationRequest{ConversationID: createConvResp.ConversationID})
-		// 	if delErr != nil {
-		// 		config.Logger.Error(err)
-		// 	}
-		// }()
-	}()
-
 	_, convs, err := cli.ListModelsAndConversations(reqCtx.Request().Context())
 	if err != nil {
 		return err
 	}
+	_ = config.Logger.Debug(string(stlval.IgnoreWith(json.Marshal(convs))))
 	convs = stlslices.Filter(convs, func(_ int, conv *api.SimpleConversationInfo) bool {
+		// _ = config.Logger.Debug(string(stlval.IgnoreWith(json.Marshal(conv))))
 		return conv.Model == req.Model
 	})
+	var convInfo *api.ConversationInfoResponse
 	if len(convs) == 0 {
-		return stlerr.Errorf("not found valid conversation")
+		createResp, err := cli.CreateConversation(reqCtx.Request().Context(), &api.CreateConversationRequest{
+			Model: req.Model,
+		})
+		if err != nil {
+			return err
+		}
+		convInfo, err = cli.ConversationInfoAfterCreate(reqCtx.Request().Context(), &api.ConversationInfoAfterCreateRequest{
+			ConversationID: createResp.ConversationID,
+		})
+		if err != nil {
+			return err
+		}
+	} else {
+		convID := stlslices.Random(convs).ID
+		convInfo, err = cli.ConversationInfo(reqCtx.Request().Context(), &api.ConversationInfoRequest{ConversationID: convID})
+		if err != nil {
+			return err
+		}
 	}
-	convID := stlslices.Random(convs).ID
 
-	convInfo, err := cli.ConversationInfo(reqCtx.Request().Context(), &api.ConversationInfoRequest{ConversationID: convID})
-	if err != nil {
-		return err
-	}
+	// defer func() {
+	// 	go func() {
+	// 		delErr := cli.DeleteConversation(reqCtx.Request().Context(), &api.DeleteConversationRequest{ConversationID: convInfo.ConversationID})
+	// 		if delErr != nil {
+	// 			_ = config.Logger.Error(err)
+	// 		}
+	// 	}()
+	// }()
 
 	msgStrList := make([]string, len(req.Messages)+1)
 	msgStrList[0] = "Forget previous messages and focus on the current message!\n"
@@ -80,9 +84,9 @@ func ChatCompletions(reqCtx echo.Context) error {
 	}
 	prompt := fmt.Sprintf("%s\nassistant: ", strings.Join(msgStrList, ""))
 
-	msgID := stlval.Ternary(stlslices.Last(convInfo.Messages).From != "system", stlslices.Last(convInfo.Messages).ID, uuid.NewV4().String())
+	msgID := stlslices.Last(convInfo.Messages).ID
 	chatResp, err := cli.ChatConversation(reqCtx.Request().Context(), &api.ChatConversationRequest{
-		ConversationID: convID,
+		ConversationID: convInfo.ConversationID,
 		ID:             msgID,
 		Inputs:         prompt,
 	})
@@ -121,7 +125,7 @@ func chatCompletionsNoStream(reqCtx echo.Context, msgID string, convInfo *api.Co
 					},
 				})
 			}
-		case api.StreamMessageTypeStatus, api.StreamMessageTypeTool:
+		case api.StreamMessageTypeStatus, api.StreamMessageTypeTool, api.StreamMessageTypeTitle:
 		default:
 			_ = config.Logger.Warnf("unknown stream msg type `%s`", msg.Type)
 		}
@@ -229,7 +233,7 @@ func chatCompletionsWithStream(reqCtx echo.Context, msgID string, convInfo *api.
 					return err
 				}
 				writer.Flush()
-			case api.StreamMessageTypeStatus, api.StreamMessageTypeTool, api.StreamMessageTypeFile:
+			case api.StreamMessageTypeStatus, api.StreamMessageTypeTool, api.StreamMessageTypeFile, api.StreamMessageTypeTitle:
 			default:
 				_ = config.Logger.Warnf("unknown stream msg type `%s`", msg.Type)
 			}

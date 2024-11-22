@@ -4,16 +4,13 @@
 
 ## 使用说明
 
-1. **获取 Authorization**  
+**获取 Authorization**  
    以下两种方式任选其一！
 
    + 使用base64编码`username={你的账号名}&password={你的密码}`，假设你的账号名为usr，密码为pwd，则`username=usr&password=pwd`进行base64编码后结果为`dXNlcm5hbWU9dXNyJnBhc3N3b3JkPXB3ZA==`
    + 进入 [HuggingChat官网](https://huggingface.co/chat) 并登录，从浏览器的 Cookie 中取出 `hf-chat` 的值，形如`cc43f26e-142b-409f-b228-68316s5x30a9`
 
    将上面任意一种方式获得的值填入Authorization
-
-2. **！！注意事项！！会话创建**  
-   由于调用创建会话的接口创建出的会话总是呈不可用状态，因此需要提前为每个模型创建好会话。
 
 ## 调用说明
 
@@ -62,13 +59,15 @@ curl -X POST "http://localhost:5695/v1/chat/completions" \
 
 ### 支持的模型
 
+- `Qwen/Qwen2.5-72B-Instruct`
 - `meta-llama/Meta-Llama-3.1-70B-Instruct`
 - `CohereForAI/c4ai-command-r-plus-08-2024`
-- `Qwen/Qwen2.5-72B-Instruct`
 - `nvidia/Llama-3.1-Nemotron-70B-Instruct-HF`
+- `Qwen/Qwen2.5-Coder-32B-Instruct`
 - `meta-llama/Llama-3.2-11B-Vision-Instruct`
 - `NousResearch/Hermes-3-Llama-3.1-8B`
 - `mistralai/Mistral-Nemo-Instruct-2407`
+- `microsoft/Phi-3.5-mini-instruct`
 
 ## 部署方案
 

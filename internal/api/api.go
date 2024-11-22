@@ -16,6 +16,7 @@ import (
 	"github.com/imroc/req/v3"
 	stlslices "github.com/kkkunny/stl/container/slices"
 	stlerr "github.com/kkkunny/stl/error"
+	stlval "github.com/kkkunny/stl/value"
 )
 
 type Api struct {
@@ -123,69 +124,75 @@ func (api *Api) ListModelsAndConversations(ctx context.Context) ([]*ModelInfo, [
 	if err != nil {
 		return nil, nil, err
 	}
+	nodes := stlval.IgnoreWith(stlslices.FindFirst(rawResp, func(_ int, kvs map[string]any) bool {
+		return kvs["type"] == "data"
+	}))["nodes"]
+	data := stlval.IgnoreWith(stlslices.FindFirst(nodes.([]any), func(_ int, obj any) bool {
+		return obj.(map[string]any)["type"] == "data"
+	})).(map[string]any)["data"].([]any)
+
 	var models []*ModelInfo
-	var conversations []*SimpleConversationInfo
-	for _, rawRespItem := range rawResp {
-		if rawRespItem["type"] == "data" {
-			data := rawRespItem["nodes"].([]any)[0].(map[string]any)["data"].([]any)
-			modelIndexObjList := data[int64(data[0].(map[string]any)["models"].(float64))].([]any)
-			models = stlslices.Map(modelIndexObjList, func(_ int, modelIndexObj any) *ModelInfo {
-				modelIdx := int64(modelIndexObj.(float64))
-				modelMetaInfo := data[modelIdx].(map[string]any)
+	{
+		modelIndexObjList := data[int64(data[0].(map[string]any)["models"].(float64))].([]any)
+		models = stlslices.Map(modelIndexObjList, func(_ int, modelIndexObj any) *ModelInfo {
+			modelIdx := int64(modelIndexObj.(float64))
+			modelMetaInfo := data[modelIdx].(map[string]any)
 
-				idIndex := int64(modelMetaInfo["id"].(float64))
-				nameIndex := int64(modelMetaInfo["name"].(float64))
-				descriptionIndex := int64(modelMetaInfo["description"].(float64))
-				parametersIndex := int64(modelMetaInfo["parameters"].(float64))
-				unlistedIndex := int64(modelMetaInfo["unlisted"].(float64))
+			idIndex := int64(modelMetaInfo["id"].(float64))
+			nameIndex := int64(modelMetaInfo["name"].(float64))
+			descriptionIndex := int64(modelMetaInfo["description"].(float64))
+			parametersIndex := int64(modelMetaInfo["parameters"].(float64))
+			unlistedIndex := int64(modelMetaInfo["unlisted"].(float64))
 
-				id := data[idIndex].(string)
-				name := data[nameIndex].(string)
-				unlisted := data[unlistedIndex].(bool)
-				var desc string
-				var maxNewTokens int64
-				if !unlisted {
-					desc = data[descriptionIndex].(string)
-					parameters := data[parametersIndex].(map[string]any)
-					maxNewTokensIndex := int64(parameters["max_new_tokens"].(float64))
-					maxNewTokens = int64(data[maxNewTokensIndex].(float64))
-				}
+			id := data[idIndex].(string)
+			name := data[nameIndex].(string)
+			unlisted := data[unlistedIndex].(bool)
+			var desc string
+			var maxNewTokens int64
+			if !unlisted {
+				desc = data[descriptionIndex].(string)
+				parameters := data[parametersIndex].(map[string]any)
+				maxNewTokensIndex := int64(parameters["max_new_tokens"].(float64))
+				maxNewTokens = int64(data[maxNewTokensIndex].(float64))
+			}
 
-				return &ModelInfo{
-					ID:           id,
-					Name:         name,
-					Desc:         desc,
-					MaxNewTokens: maxNewTokens,
-					Active:       !unlisted,
-				}
-			})
-		} else if rawRespItem["type"] == "chunk" && fmt.Sprintf("%v", rawRespItem["id"]) == "1" {
-			data := rawRespItem["data"].([]any)
-			conversationIndexObjList := data[0].([]any)
-			conversations = stlslices.Map(conversationIndexObjList, func(_ int, conversationIndexObj any) *SimpleConversationInfo {
-				conversationIdx := int64(conversationIndexObj.(float64))
-				conversationMetaInfo := data[conversationIdx].(map[string]any)
-
-				idIndex := int64(conversationMetaInfo["id"].(float64))
-				titleIndex := int64(conversationMetaInfo["title"].(float64))
-				modelIndex := int64(conversationMetaInfo["model"].(float64))
-				updatedAtIndex := int64(conversationMetaInfo["updatedAt"].(float64))
-
-				id := data[idIndex].(string)
-				title := data[titleIndex].(string)
-				model := data[modelIndex].(string)
-				updatedAtStr := data[updatedAtIndex].([]any)[1].(string)
-				updatedAt, _ := time.Parse(time.RFC3339, updatedAtStr)
-
-				return &SimpleConversationInfo{
-					ID:        id,
-					Title:     title,
-					Model:     model,
-					UpdatedAt: updatedAt,
-				}
-			})
-		}
+			return &ModelInfo{
+				ID:           id,
+				Name:         name,
+				Desc:         desc,
+				MaxNewTokens: maxNewTokens,
+				Active:       !unlisted,
+			}
+		})
 	}
+
+	var conversations []*SimpleConversationInfo
+	{
+		conversationIndexObjList := data[int64(data[0].(map[string]any)["conversations"].(float64))].([]any)
+		conversations = stlslices.Map(conversationIndexObjList, func(_ int, conversationIndexObj any) *SimpleConversationInfo {
+			conversationIdx := int64(conversationIndexObj.(float64))
+			conversationMetaInfo := data[conversationIdx].(map[string]any)
+
+			idIndex := int64(conversationMetaInfo["id"].(float64))
+			titleIndex := int64(conversationMetaInfo["title"].(float64))
+			modelIndex := int64(conversationMetaInfo["model"].(float64))
+			updatedAtIndex := int64(conversationMetaInfo["updatedAt"].(float64))
+
+			id := data[idIndex].(string)
+			title := data[titleIndex].(string)
+			model := data[modelIndex].(string)
+			updatedAtStr := data[updatedAtIndex].([]any)[1].(string)
+			updatedAt, _ := time.Parse(time.RFC3339, updatedAtStr)
+
+			return &SimpleConversationInfo{
+				ID:        id,
+				Title:     title,
+				Model:     model,
+				UpdatedAt: updatedAt,
+			}
+		})
+	}
+
 	return models, conversations, nil
 }
 
@@ -198,7 +205,7 @@ type CreateConversationResponse struct {
 	ConversationID string `json:"conversationId"`
 }
 
-func (api *Api) CreateConversation(ctx context.Context, req *CreateConversationRequest) (*CreateConversationResponse, error) {
+func (api *Api) CreateConversation(ctx context.Context, req *CreateConversationRequest) (*ConversationInfoResponse, error) {
 	httpResp, err := stlerr.ErrorWith(api.client.R().
 		SetContext(ctx).
 		SetBodyJsonMarshal(req).
@@ -210,7 +217,172 @@ func (api *Api) CreateConversation(ctx context.Context, req *CreateConversationR
 		return nil, stlerr.Errorf("http error: code=%d, status=%s", httpResp.GetStatusCode(), httpResp.String())
 	}
 	conversation := httpResp.SuccessResult().(*CreateConversationResponse)
-	return conversation, nil
+
+	httpResp, err = stlerr.ErrorWith(api.client.R().
+		SetContext(ctx).
+		Get(fmt.Sprintf("%s/chat/conversation/%s/__data.json?x-sveltekit-invalidated=11", api.domain, conversation.ConversationID)))
+	if err != nil {
+		return nil, err
+	} else if httpResp.GetStatusCode() != http.StatusOK {
+		return nil, stlerr.Errorf("http error: code=%d, status=%s", httpResp.GetStatusCode(), httpResp.String())
+	}
+
+	rawStr := "[" + regexp.MustCompile(`}\s*\{`).ReplaceAllString(httpResp.String(), "},{") + "]"
+	var rawResp []map[string]any
+	err = stlerr.ErrorWrap(json.Unmarshal([]byte(rawStr), &rawResp))
+	if err != nil {
+		return nil, err
+	}
+
+	for _, rawRespItem := range rawResp {
+		if rawRespItem["type"] != "data" {
+			continue
+		}
+		nodes := rawRespItem["nodes"].([]any)
+		for _, node := range nodes {
+			if stlslices.First(node.(map[string]any)["uses"].(map[string]any)["dependencies"].([]any)).(string) != "https://huggingface.co/chat/conversation/conversation" {
+				continue
+			}
+			data := node.(map[string]any)["data"].([]any)
+
+			indexMap := data[0].(map[string]any)
+			messagesIndex := int64(indexMap["messages"].(float64))
+			titleIndex := int64(indexMap["title"].(float64))
+			modelIndex := int64(indexMap["model"].(float64))
+			prepromptIndex := int64(indexMap["preprompt"].(float64))
+
+			messagesIndexList := data[messagesIndex].([]any)
+			model := data[modelIndex].(string)
+			title := data[titleIndex].(string)
+			prePrompt := data[prepromptIndex].(string)
+
+			messages := stlslices.Map(messagesIndexList, func(_ int, msgIdxObj any) *Message {
+				msgIdx := int64(msgIdxObj.(float64))
+				msgMetaInfo := data[msgIdx].(map[string]any)
+
+				idIndex := int64(msgMetaInfo["id"].(float64))
+				fromIndex := int64(msgMetaInfo["from"].(float64))
+				contentIndex := int64(msgMetaInfo["content"].(float64))
+				childrenIndex := int64(msgMetaInfo["children"].(float64))
+				createdAtIndex := int64(msgMetaInfo["createdAt"].(float64))
+				updatedAtIndex := int64(msgMetaInfo["updatedAt"].(float64))
+
+				id := data[idIndex].(string)
+				from := data[fromIndex].(string)
+				content := data[contentIndex].(string)
+				children := stlslices.Map(data[childrenIndex].([]any), func(_ int, childIdxObj any) string {
+					childIdx := int64(childIdxObj.(float64))
+					return data[childIdx].(string)
+				})
+				createdAtStr := data[createdAtIndex].([]any)[1].(string)
+				createdAt, _ := time.Parse(time.RFC3339, createdAtStr)
+				updatedAtStr := data[updatedAtIndex].([]any)[1].(string)
+				updatedAt, _ := time.Parse(time.RFC3339, updatedAtStr)
+				return &Message{
+					ID:       id,
+					From:     from,
+					Content:  content,
+					Children: children,
+					CreateAt: createdAt,
+					UpdateAt: updatedAt,
+				}
+			})
+			return &ConversationInfoResponse{
+				ConversationID: conversation.ConversationID,
+				Model:          model,
+				Title:          title,
+				PrePrompt:      prePrompt,
+				Messages:       messages,
+			}, nil
+		}
+	}
+	return nil, stlerr.Errorf("not found conversation, id=%s", conversation.ConversationID)
+}
+
+type ConversationInfoAfterCreateRequest struct {
+	ConversationID string `json:"conversationId"`
+}
+
+func (api *Api) ConversationInfoAfterCreate(ctx context.Context, req *ConversationInfoAfterCreateRequest) (*ConversationInfoResponse, error) {
+	httpResp, err := stlerr.ErrorWith(api.client.R().
+		SetContext(ctx).
+		Get(fmt.Sprintf("%s/chat/conversation/%s/__data.json?x-sveltekit-invalidated=11", api.domain, req.ConversationID)))
+	if err != nil {
+		return nil, err
+	} else if httpResp.GetStatusCode() != http.StatusOK {
+		return nil, stlerr.Errorf("http error: code=%d, status=%s", httpResp.GetStatusCode(), httpResp.String())
+	}
+
+	rawStr := "[" + regexp.MustCompile(`}\s*\{`).ReplaceAllString(httpResp.String(), "},{") + "]"
+	var rawResp []map[string]any
+	err = stlerr.ErrorWrap(json.Unmarshal([]byte(rawStr), &rawResp))
+	if err != nil {
+		return nil, err
+	}
+
+	for _, rawRespItem := range rawResp {
+		if rawRespItem["type"] != "data" {
+			continue
+		}
+		nodes := rawRespItem["nodes"].([]any)
+		for _, node := range nodes {
+			if stlslices.First(node.(map[string]any)["uses"].(map[string]any)["dependencies"].([]any)).(string) != "https://huggingface.co/chat/conversation/conversation" {
+				continue
+			}
+			data := node.(map[string]any)["data"].([]any)
+
+			indexMap := data[0].(map[string]any)
+			messagesIndex := int64(indexMap["messages"].(float64))
+			titleIndex := int64(indexMap["title"].(float64))
+			modelIndex := int64(indexMap["model"].(float64))
+			prepromptIndex := int64(indexMap["preprompt"].(float64))
+
+			messagesIndexList := data[messagesIndex].([]any)
+			model := data[modelIndex].(string)
+			title := data[titleIndex].(string)
+			prePrompt := data[prepromptIndex].(string)
+
+			messages := stlslices.Map(messagesIndexList, func(_ int, msgIdxObj any) *Message {
+				msgIdx := int64(msgIdxObj.(float64))
+				msgMetaInfo := data[msgIdx].(map[string]any)
+
+				idIndex := int64(msgMetaInfo["id"].(float64))
+				fromIndex := int64(msgMetaInfo["from"].(float64))
+				contentIndex := int64(msgMetaInfo["content"].(float64))
+				childrenIndex := int64(msgMetaInfo["children"].(float64))
+				createdAtIndex := int64(msgMetaInfo["createdAt"].(float64))
+				updatedAtIndex := int64(msgMetaInfo["updatedAt"].(float64))
+
+				id := data[idIndex].(string)
+				from := data[fromIndex].(string)
+				content := data[contentIndex].(string)
+				children := stlslices.Map(data[childrenIndex].([]any), func(_ int, childIdxObj any) string {
+					childIdx := int64(childIdxObj.(float64))
+					return data[childIdx].(string)
+				})
+				createdAtStr := data[createdAtIndex].([]any)[1].(string)
+				createdAt, _ := time.Parse(time.RFC3339, createdAtStr)
+				updatedAtStr := data[updatedAtIndex].([]any)[1].(string)
+				updatedAt, _ := time.Parse(time.RFC3339, updatedAtStr)
+				return &Message{
+					ID:       id,
+					From:     from,
+					Content:  content,
+					Children: children,
+					CreateAt: createdAt,
+					UpdateAt: updatedAt,
+				}
+			})
+			return &ConversationInfoResponse{
+				ConversationID: req.ConversationID,
+				Model:          model,
+				Title:          title,
+				PrePrompt:      prePrompt,
+				Messages:       messages,
+			}, nil
+		}
+	}
+	return nil, stlerr.Errorf("not found conversation, id=%s", req.ConversationID)
 }
 
 type DeleteConversationRequest struct {
@@ -260,12 +432,6 @@ func (api *Api) ConversationInfo(ctx context.Context, req *ConversationInfoReque
 	} else if httpResp.GetStatusCode() != http.StatusOK {
 		return nil, stlerr.Errorf("http error: code=%d, status=%s", httpResp.GetStatusCode(), httpResp.String())
 	}
-
-	defer func() {
-		if panicErr := recover(); panicErr != nil {
-			err = stlerr.Errorf("parse resp error: err=%+v", panicErr)
-		}
-	}()
 
 	rawResp := *httpResp.SuccessResult().(*map[string]any)
 	data := rawResp["nodes"].([]any)[1].(map[string]any)["data"].([]any)
@@ -345,6 +511,7 @@ const (
 	StreamMessageTypeError       StreamMessageType = "error"
 	StreamMessageTypeTool        StreamMessageType = "tool"
 	StreamMessageTypeFile        StreamMessageType = "file"
+	StreamMessageTypeTitle       StreamMessageType = "title"
 )
 
 type StreamMessageSubType string
