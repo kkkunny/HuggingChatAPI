@@ -1,4 +1,4 @@
-package middleware
+package main
 
 import (
 	"errors"
@@ -10,7 +10,7 @@ import (
 	"github.com/kkkunny/HuggingChatAPI/config"
 )
 
-func ErrorHandler(next echo.HandlerFunc) echo.HandlerFunc {
+func midErrorHandler(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(reqCtx echo.Context) (err error) {
 		var isPanic bool
 

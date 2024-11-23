@@ -26,11 +26,6 @@ func chatCompletions(reqCtx echo.Context) error {
 		return echo.ErrUnauthorized
 	}
 	cli := hugchat.NewClient(tokenProvider)
-	err = cli.CheckLogin(reqCtx.Request().Context())
-	if err != nil {
-		_ = config.Logger.Error(err)
-		return echo.ErrUnauthorized
-	}
 
 	var req openai.ChatCompletionRequest
 	if err = stlerr.ErrorWrap(reqCtx.Bind(&req)); err != nil {

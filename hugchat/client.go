@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	stlslices "github.com/kkkunny/stl/container/slices"
+	"github.com/kkkunny/stl/container/tuple"
 	stlerr "github.com/kkkunny/stl/error"
 
 	"github.com/kkkunny/HuggingChatAPI/config"
@@ -25,31 +26,16 @@ func NewClient(tokenProvider TokenProvider) *Client {
 	}
 }
 
-// CheckLogin 检查并刷新登录
-func (c *Client) CheckLogin(ctx context.Context) error {
-	token, err := c.tokenProvider.GetToken(ctx)
+func (c *Client) handleUnauthorized(ctx context.Context, f func() error) error {
+	err := f()
+	if !errors.Is(err, api.ErrUnauthorized) {
+		return err
+	}
+	_, err = c.tokenProvider.RefreshToken(ctx)
 	if err != nil {
 		return err
 	}
-	login, err := api.CheckLogin(ctx, token)
-	if err != nil {
-		return err
-	}
-	if login {
-		return nil
-	}
-
-	token, err = c.tokenProvider.RefreshToken(ctx)
-	if err != nil {
-		return err
-	}
-	login, err = api.CheckLogin(ctx, token)
-	if err != nil {
-		return err
-	} else if !login {
-		return stlerr.Errorf("not login")
-	}
-	return nil
+	return f()
 }
 
 // ListModels 列出模型
@@ -58,7 +44,11 @@ func (c *Client) ListModels(ctx context.Context) ([]*dto.ModelInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	models, _, err := api.ListModelsAndConversations(ctx, token)
+	var models []*api.ModelInfo
+	err = c.handleUnauthorized(ctx, func() error {
+		models, _, err = api.ListModelsAndConversations(ctx, token)
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -73,7 +63,11 @@ func (c *Client) ListConversations(ctx context.Context) ([]*dto.SimpleConversati
 	if err != nil {
 		return nil, err
 	}
-	_, convs, err := api.ListModelsAndConversations(ctx, token)
+	var convs []*api.SimpleConversationInfo
+	err = c.handleUnauthorized(ctx, func() error {
+		_, convs, err = api.ListModelsAndConversations(ctx, token)
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +82,11 @@ func (c *Client) ConversationInfo(ctx context.Context, convID string) (*dto.Conv
 	if err != nil {
 		return nil, err
 	}
-	conv, err := api.ConversationInfo(ctx, token, convID)
+	var conv *api.DetailConversationInfo
+	err = c.handleUnauthorized(ctx, func() error {
+		conv, err = api.ConversationInfo(ctx, token, convID)
+		return err
+	})
 	return dto.NewConversationInfoFromAPI(conv), err
 }
 
@@ -98,15 +96,23 @@ func (c *Client) CreateConversation(ctx context.Context, model string, systemPro
 	if err != nil {
 		return nil, err
 	}
-	createResp, err := api.CreateConversation(ctx, token, &api.CreateConversationRequest{
-		Model:     model,
-		PrePrompt: systemPrompt,
+	var createResp *api.CreateConversationResponse
+	err = c.handleUnauthorized(ctx, func() error {
+		createResp, err = api.CreateConversation(ctx, token, &api.CreateConversationRequest{
+			Model:     model,
+			PrePrompt: systemPrompt,
+		})
+		return err
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	info, err := api.ConversationInfoAfterCreate(ctx, token, createResp.ConversationID)
+	var info *api.DetailConversationInfo
+	err = c.handleUnauthorized(ctx, func() error {
+		info, err = api.ConversationInfoAfterCreate(ctx, token, createResp.ConversationID)
+		return err
+	})
 	return dto.NewConversationInfoFromAPI(info), err
 }
 
@@ -116,7 +122,9 @@ func (c *Client) DeleteConversation(ctx context.Context, convID string) error {
 	if err != nil {
 		return err
 	}
-	return api.DeleteConversation(ctx, token, convID)
+	return c.handleUnauthorized(ctx, func() error {
+		return api.DeleteConversation(ctx, token, convID)
+	})
 }
 
 type ChatConversationParams struct {
@@ -131,12 +139,16 @@ func (c *Client) ChatConversation(ctx context.Context, convID string, params *Ch
 	if err != nil {
 		return nil, err
 	}
-	msgDataChan, err := api.ChatConversation(ctx, token, &api.ChatConversationRequest{
-		ConversationID: convID,
-		ID:             params.LastMsgID,
-		Inputs:         params.Inputs,
-		WebSearch:      params.WebSearch,
-		Tools:          params.Tools,
+	var msgDataChan chan tuple.Tuple2[string, error]
+	err = c.handleUnauthorized(ctx, func() error {
+		msgDataChan, err = api.ChatConversation(ctx, token, &api.ChatConversationRequest{
+			ConversationID: convID,
+			ID:             params.LastMsgID,
+			Inputs:         params.Inputs,
+			WebSearch:      params.WebSearch,
+			Tools:          params.Tools,
+		})
+		return err
 	})
 	if err != nil {
 		return nil, err

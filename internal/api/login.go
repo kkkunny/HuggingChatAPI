@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -12,6 +13,8 @@ import (
 
 	"github.com/kkkunny/HuggingChatAPI/config"
 )
+
+var ErrUnauthorized = errors.New("unauthorized")
 
 // Login 登录
 func Login(ctx context.Context, username string, password string) ([]*http.Cookie, error) {

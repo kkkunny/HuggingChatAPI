@@ -6,7 +6,6 @@ import (
 	"github.com/labstack/gommon/log"
 
 	"github.com/kkkunny/HuggingChatAPI/config"
-	"github.com/kkkunny/HuggingChatAPI/middleware"
 )
 
 func main() {
@@ -15,7 +14,7 @@ func main() {
 	svr.Logger.SetLevel(log.OFF)
 	svr.IPExtractor = echo.ExtractIPFromRealIPHeader()
 
-	svr.Use(middleware.ErrorHandler, middleware.Logger)
+	svr.Use(midErrorHandler, midLogger)
 
 	svr.GET("/v1/models", listModels)
 	svr.POST("/v1/chat/completions", chatCompletions)

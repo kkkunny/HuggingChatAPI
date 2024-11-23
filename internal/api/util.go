@@ -35,6 +35,8 @@ func sendDefaultHttpRequest[Result any](ctx context.Context, method string, reqH
 	resp, err := stlerr.ErrorWith(req.Send(method, uri))
 	if err != nil {
 		return nil, err
+	} else if resp.GetStatusCode() == http.StatusUnauthorized {
+		return nil, stlerr.ErrorWrap(ErrUnauthorized)
 	} else if resp.GetStatusCode() != http.StatusOK {
 		return nil, stlerr.Errorf("http error: code=%d, status=%s", resp.GetStatusCode(), resp.GetStatus())
 	}

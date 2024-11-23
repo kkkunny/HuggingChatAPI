@@ -21,11 +21,6 @@ func listModels(reqCtx echo.Context) error {
 		return echo.ErrUnauthorized
 	}
 	cli := hugchat.NewClient(tokenProvider)
-	err = cli.CheckLogin(reqCtx.Request().Context())
-	if err != nil {
-		_ = config.Logger.Error(err)
-		return echo.ErrUnauthorized
-	}
 
 	models, err := cli.ListModels(reqCtx.Request().Context())
 	if err != nil {

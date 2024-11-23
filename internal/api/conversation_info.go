@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"regexp"
+	"strings"
 	"time"
 
 	request "github.com/imroc/req/v3"
@@ -120,5 +121,9 @@ func ConversationInfo(ctx context.Context, cookies []*http.Cookie, convID string
 	if err != nil {
 		return nil, err
 	}
-	return parseDetailConversationInfo(convID, (*httpResp)["nodes"].([]any)[1].(map[string]any)["data"].([]any))
+	node := (*httpResp)["nodes"].([]any)[1].(map[string]any)
+	if node["type"] == "error" && strings.Contains(node["error"].(map[string]any)["message"].(string), "access to") {
+		return nil, stlerr.ErrorWrap(ErrUnauthorized)
+	}
+	return parseDetailConversationInfo(convID, node["data"].([]any))
 }
