@@ -4,17 +4,18 @@ go 1.22.2
 
 require (
 	github.com/imroc/req/v3 v3.48.0
-	github.com/kkkunny/stl v0.0.0-20241105013004-33daba72dee7
+	github.com/kkkunny/stl v0.0.0-20241116043033-308ffc3d1d79
 	github.com/labstack/echo/v4 v4.12.0
 	github.com/labstack/gommon v0.4.2
 	github.com/sashabaranov/go-openai v1.32.3
-	github.com/satori/go.uuid v1.2.0
 	golang.org/x/exp v0.0.0-20241009180824-f66d83c29e7c
 )
 
 require (
 	github.com/andybalholm/brotli v1.1.1 // indirect
+	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cloudflare/circl v1.5.0 // indirect
+	github.com/elastic/go-freelru v0.13.0 // indirect
 	github.com/go-task/slim-sprig/v3 v3.0.0 // indirect
 	github.com/google/pprof v0.0.0-20241023014458-598669927662 // indirect
 	github.com/gookit/color v1.5.4 // indirect
@@ -40,5 +41,4 @@ require (
 	golang.org/x/sys v0.26.0 // indirect
 	golang.org/x/text v0.19.0 // indirect
 	golang.org/x/tools v0.26.0 // indirect
-	gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405 // indirect
 )

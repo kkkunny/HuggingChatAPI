@@ -22,4 +22,4 @@ go.work
 
 # IDE
 .idea
-config
+config/cookies.json

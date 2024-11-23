@@ -3,7 +3,7 @@ FROM golang:1.22.2-alpine3.19 AS builder
 #ENV GOPROXY=https://goproxy.cn,direct
 WORKDIR /app
 COPY . .
-RUN go build -o bin/server -tags release .
+RUN go build -o bin/server -tags release ./web
 
 
 FROM alpine:3.19 AS final

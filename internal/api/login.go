@@ -10,12 +10,12 @@ import (
 	stlerr "github.com/kkkunny/stl/error"
 	"golang.org/x/exp/maps"
 
-	"github.com/kkkunny/HuggingChatAPI/internal/config"
+	"github.com/kkkunny/HuggingChatAPI/config"
 )
 
 // Login 登录
 func Login(ctx context.Context, username string, password string) ([]*http.Cookie, error) {
-	cli := globalClient.Clone()
+	cli := globalHttpClient.Clone()
 	cli.SetCommonHeader("origin", config.HuggingChatDomain)
 
 	loginResp, err := login(ctx, cli, &loginRequest{

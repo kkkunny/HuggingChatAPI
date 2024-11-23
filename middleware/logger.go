@@ -3,7 +3,7 @@ package middleware
 import (
 	"github.com/labstack/echo/v4"
 
-	"github.com/kkkunny/HuggingChatAPI/internal/config"
+	"github.com/kkkunny/HuggingChatAPI/config"
 )
 
 func Logger(next echo.HandlerFunc) echo.HandlerFunc {

@@ -1,4 +1,4 @@
-package handler
+package main
 
 import (
 	"encoding/json"
@@ -14,18 +14,19 @@ import (
 
 	"github.com/sashabaranov/go-openai"
 
-	"github.com/kkkunny/HuggingChatAPI/internal/api"
-	"github.com/kkkunny/HuggingChatAPI/internal/config"
+	"github.com/kkkunny/HuggingChatAPI/config"
+	"github.com/kkkunny/HuggingChatAPI/hugchat"
+	"github.com/kkkunny/HuggingChatAPI/hugchat/dto"
 )
 
-func ChatCompletions(reqCtx echo.Context) error {
-	token := strings.TrimPrefix(reqCtx.Request().Header.Get("Authorization"), "Bearer ")
-	cli, err := api.NewAPI(config.HuggingChatDomain, token)
+func chatCompletions(reqCtx echo.Context) error {
+	tokenProvider, err := parseAuthorization(strings.TrimPrefix(reqCtx.Request().Header.Get("Authorization"), "Bearer "))
 	if err != nil {
 		_ = config.Logger.Error(err)
 		return echo.ErrUnauthorized
 	}
-	err = cli.RefreshCookie(reqCtx.Request().Context())
+	cli := hugchat.NewClient(tokenProvider)
+	err = cli.CheckLogin(reqCtx.Request().Context())
 	if err != nil {
 		_ = config.Logger.Error(err)
 		return echo.ErrUnauthorized
@@ -37,45 +38,26 @@ func ChatCompletions(reqCtx echo.Context) error {
 		return echo.ErrBadRequest
 	}
 
-	_, convs, err := cli.ListModelsAndConversations(reqCtx.Request().Context())
+	convs, err := cli.ListConversations(reqCtx.Request().Context())
 	if err != nil {
 		return err
 	}
-	_ = config.Logger.Debug(string(stlval.IgnoreWith(json.Marshal(convs))))
-	convs = stlslices.Filter(convs, func(_ int, conv *api.SimpleConversationInfo) bool {
-		// _ = config.Logger.Debug(string(stlval.IgnoreWith(json.Marshal(conv))))
+	convs = stlslices.Filter(convs, func(_ int, conv *dto.SimpleConversationInfo) bool {
 		return conv.Model == req.Model
 	})
-	var convInfo *api.ConversationInfoResponse
+	var convInfo *dto.ConversationInfo
 	if len(convs) == 0 {
-		createResp, err := cli.CreateConversation(reqCtx.Request().Context(), &api.CreateConversationRequest{
-			Model: req.Model,
-		})
-		if err != nil {
-			return err
-		}
-		convInfo, err = cli.ConversationInfoAfterCreate(reqCtx.Request().Context(), &api.ConversationInfoAfterCreateRequest{
-			ConversationID: createResp.ConversationID,
-		})
+		convInfo, err = cli.CreateConversation(reqCtx.Request().Context(), req.Model, "")
 		if err != nil {
 			return err
 		}
 	} else {
 		convID := stlslices.Random(convs).ID
-		convInfo, err = cli.ConversationInfo(reqCtx.Request().Context(), &api.ConversationInfoRequest{ConversationID: convID})
+		convInfo, err = cli.ConversationInfo(reqCtx.Request().Context(), convID)
 		if err != nil {
 			return err
 		}
 	}
-
-	// defer func() {
-	// 	go func() {
-	// 		delErr := cli.DeleteConversation(reqCtx.Request().Context(), &api.DeleteConversationRequest{ConversationID: convInfo.ConversationID})
-	// 		if delErr != nil {
-	// 			_ = config.Logger.Error(err)
-	// 		}
-	// 	}()
-	// }()
 
 	msgStrList := make([]string, len(req.Messages)+1)
 	msgStrList[0] = "Forget previous messages and focus on the current message!\n"
@@ -85,27 +67,26 @@ func ChatCompletions(reqCtx echo.Context) error {
 	prompt := fmt.Sprintf("%s\nassistant: ", strings.Join(msgStrList, ""))
 
 	msgID := stlslices.Last(convInfo.Messages).ID
-	chatResp, err := cli.ChatConversation(reqCtx.Request().Context(), &api.ChatConversationRequest{
-		ConversationID: convInfo.ConversationID,
-		ID:             msgID,
-		Inputs:         prompt,
+	msgChan, err := cli.ChatConversation(reqCtx.Request().Context(), convInfo.ConversationID, &hugchat.ChatConversationParams{
+		LastMsgID: msgID,
+		Inputs:    prompt,
 	})
 	if err != nil {
 		return err
 	}
 
 	handler := stlval.Ternary(req.Stream, chatCompletionsWithStream, chatCompletionsNoStream)
-	return handler(reqCtx, msgID, convInfo, chatResp)
+	return handler(reqCtx, msgID, convInfo, msgChan)
 }
 
-func chatCompletionsNoStream(reqCtx echo.Context, msgID string, convInfo *api.ConversationInfoResponse, resp *api.ChatConversationResponse) error {
+func chatCompletionsNoStream(reqCtx echo.Context, msgID string, convInfo *dto.ConversationInfo, msgChan chan *dto.StreamMessage) error {
 	var tokenCount uint64
 	var contents []openai.ChatMessagePart
-	for msg := range resp.Stream {
+	for msg := range msgChan {
 		switch msg.Type {
-		case api.StreamMessageTypeError:
+		case dto.StreamMessageTypeError:
 			return msg.Error
-		case api.StreamMessageTypeFinalAnswer:
+		case dto.StreamMessageTypeFinalAnswer:
 			if stlval.DerefPtrOr(msg.Text) != "" {
 				contents = append(contents, openai.ChatMessagePart{
 					Type: openai.ChatMessagePartTypeText,
@@ -113,9 +94,9 @@ func chatCompletionsNoStream(reqCtx echo.Context, msgID string, convInfo *api.Co
 				})
 			}
 			break
-		case api.StreamMessageTypeStream:
+		case dto.StreamMessageTypeStream:
 			tokenCount++
-		case api.StreamMessageTypeFile:
+		case dto.StreamMessageTypeFile:
 			if stlval.DerefPtrOr(msg.MIME) == "image/webp" && stlval.DerefPtrOr(msg.SHA) != "" {
 				contents = append(contents, openai.ChatMessagePart{
 					Type: openai.ChatMessagePartTypeImageURL,
@@ -125,7 +106,7 @@ func chatCompletionsNoStream(reqCtx echo.Context, msgID string, convInfo *api.Co
 					},
 				})
 			}
-		case api.StreamMessageTypeStatus, api.StreamMessageTypeTool, api.StreamMessageTypeTitle:
+		case dto.StreamMessageTypeStatus, dto.StreamMessageTypeTool, dto.StreamMessageTypeTitle:
 		default:
 			_ = config.Logger.Warnf("unknown stream msg type `%s`", msg.Type)
 		}
@@ -161,7 +142,7 @@ func chatCompletionsNoStream(reqCtx echo.Context, msgID string, convInfo *api.Co
 	}, "  "))
 }
 
-func chatCompletionsWithStream(reqCtx echo.Context, msgID string, convInfo *api.ConversationInfoResponse, resp *api.ChatConversationResponse) error {
+func chatCompletionsWithStream(reqCtx echo.Context, msgID string, convInfo *dto.ConversationInfo, msgChan chan *dto.StreamMessage) error {
 	writer := reqCtx.Response()
 	writer.Header().Set("Content-Type", "text/event-stream")
 	writer.Header().Set("Cache-Control", "no-cache")
@@ -172,14 +153,14 @@ func chatCompletionsWithStream(reqCtx echo.Context, msgID string, convInfo *api.
 		select {
 		case <-reqCtx.Request().Context().Done():
 			return stlerr.Errorf("SSE client disconnected")
-		case msg, ok := <-resp.Stream:
+		case msg, ok := <-msgChan:
 			if !ok {
 				return nil
 			}
 			switch msg.Type {
-			case api.StreamMessageTypeError:
+			case dto.StreamMessageTypeError:
 				return msg.Error
-			case api.StreamMessageTypeFinalAnswer:
+			case dto.StreamMessageTypeFinalAnswer:
 				data, err := stlerr.ErrorWith(json.Marshal(&openai.ChatCompletionStreamResponse{
 					ID:      msgID,
 					Object:  "chat.completion",
@@ -205,7 +186,7 @@ func chatCompletionsWithStream(reqCtx echo.Context, msgID string, convInfo *api.
 					return err
 				}
 				writer.Flush()
-			case api.StreamMessageTypeStream:
+			case dto.StreamMessageTypeStream:
 				var reply string
 				if msg.Token != nil {
 					reply = *msg.Token
@@ -233,7 +214,7 @@ func chatCompletionsWithStream(reqCtx echo.Context, msgID string, convInfo *api.
 					return err
 				}
 				writer.Flush()
-			case api.StreamMessageTypeStatus, api.StreamMessageTypeTool, api.StreamMessageTypeFile, api.StreamMessageTypeTitle:
+			case dto.StreamMessageTypeStatus, dto.StreamMessageTypeTool, dto.StreamMessageTypeFile, dto.StreamMessageTypeTitle:
 			default:
 				_ = config.Logger.Warnf("unknown stream msg type `%s`", msg.Type)
 			}

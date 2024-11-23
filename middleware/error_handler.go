@@ -7,7 +7,7 @@ import (
 	stlerr "github.com/kkkunny/stl/error"
 	"github.com/labstack/echo/v4"
 
-	"github.com/kkkunny/HuggingChatAPI/internal/config"
+	"github.com/kkkunny/HuggingChatAPI/config"
 )
 
 func ErrorHandler(next echo.HandlerFunc) echo.HandlerFunc {

@@ -1,4 +1,4 @@
-package handler
+package main
 
 import (
 	"net/http"
@@ -9,30 +9,31 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/sashabaranov/go-openai"
 
-	"github.com/kkkunny/HuggingChatAPI/internal/api"
-	"github.com/kkkunny/HuggingChatAPI/internal/config"
+	"github.com/kkkunny/HuggingChatAPI/config"
+	"github.com/kkkunny/HuggingChatAPI/hugchat"
+	"github.com/kkkunny/HuggingChatAPI/hugchat/dto"
 )
 
-func ListModels(reqCtx echo.Context) error {
-	token := strings.TrimPrefix(reqCtx.Request().Header.Get("Authorization"), "Bearer ")
-	cli, err := api.NewAPI(config.HuggingChatDomain, token)
+func listModels(reqCtx echo.Context) error {
+	tokenProvider, err := parseAuthorization(strings.TrimPrefix(reqCtx.Request().Header.Get("Authorization"), "Bearer "))
 	if err != nil {
 		_ = config.Logger.Error(err)
 		return echo.ErrUnauthorized
 	}
-	err = cli.RefreshCookie(reqCtx.Request().Context())
+	cli := hugchat.NewClient(tokenProvider)
+	err = cli.CheckLogin(reqCtx.Request().Context())
 	if err != nil {
 		_ = config.Logger.Error(err)
 		return echo.ErrUnauthorized
 	}
 
-	models, _, err := cli.ListModelsAndConversations(reqCtx.Request().Context())
+	models, err := cli.ListModels(reqCtx.Request().Context())
 	if err != nil {
 		return err
 	}
 
 	return stlerr.ErrorWrap(reqCtx.JSONPretty(http.StatusOK, &openai.ModelsList{
-		Models: stlslices.Map(models, func(_ int, model *api.ModelInfo) openai.Model {
+		Models: stlslices.Map(models, func(_ int, model *dto.ModelInfo) openai.Model {
 			return openai.Model{
 				CreatedAt: 1692901427,
 				ID:        model.ID,
