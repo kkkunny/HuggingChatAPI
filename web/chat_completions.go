@@ -77,6 +77,7 @@ func chatCompletions(reqCtx echo.Context) error {
 func chatCompletionsNoStream(reqCtx echo.Context, msgID string, convInfo *dto.ConversationInfo, msgChan chan *dto.StreamMessage) error {
 	var tokenCount uint64
 	var contents []openai.ChatMessagePart
+	var reasonBuffer strings.Builder
 	for msg := range msgChan {
 		switch msg.Type {
 		case dto.StreamMessageTypeError:
@@ -101,6 +102,13 @@ func chatCompletionsNoStream(reqCtx echo.Context, msgID string, convInfo *dto.Co
 					},
 				})
 			}
+		case dto.StreamMessageTypeReasoning:
+			var reply string
+			if msg.Token != nil {
+				reply = *msg.Token
+			}
+			reply = strings.TrimRight(reply, "\u0000")
+			reasonBuffer.WriteString(reply)
 		case dto.StreamMessageTypeStatus, dto.StreamMessageTypeTool, dto.StreamMessageTypeTitle:
 		default:
 			_ = config.Logger.Warnf("unknown stream msg type `%s`", msg.Type)
@@ -122,9 +130,10 @@ func chatCompletionsNoStream(reqCtx echo.Context, msgID string, convInfo *dto.Co
 			{
 				Index: 0,
 				Message: openai.ChatCompletionMessage{
-					Role:         "assistant",
-					Content:      reply,
-					MultiContent: contents,
+					Role:             "assistant",
+					Content:          reply,
+					MultiContent:     contents,
+					ReasoningContent: reasonBuffer.String(),
 				},
 				FinishReason: "stop",
 			},
@@ -197,6 +206,34 @@ func chatCompletionsWithStream(reqCtx echo.Context, msgID string, convInfo *dto.
 							Delta: openai.ChatCompletionStreamChoiceDelta{
 								Role:    "assistant",
 								Content: strings.TrimRight(reply, "\u0000"),
+							},
+						},
+					},
+				}))
+				if err != nil {
+					return err
+				}
+				_, err = stlerr.ErrorWith(fmt.Fprint(writer, "data: "+string(data)+"\n"))
+				if err != nil {
+					return err
+				}
+				writer.Flush()
+			case dto.StreamMessageTypeReasoning:
+				var reply string
+				if msg.Token != nil {
+					reply = *msg.Token
+				}
+				data, err := stlerr.ErrorWith(json.Marshal(&openai.ChatCompletionStreamResponse{
+					ID:      msgID,
+					Object:  "chat.completion",
+					Created: time.Now().Unix(),
+					Model:   convInfo.Model,
+					Choices: []openai.ChatCompletionStreamChoice{
+						{
+							Index: 0,
+							Delta: openai.ChatCompletionStreamChoiceDelta{
+								Role:             "assistant",
+								ReasoningContent: strings.TrimRight(reply, "\u0000"),
 							},
 						},
 					},

@@ -26,6 +26,7 @@ const (
 	StreamMessageTypeTool        StreamMessageType = "tool"
 	StreamMessageTypeFile        StreamMessageType = "file"
 	StreamMessageTypeTitle       StreamMessageType = "title"
+	StreamMessageTypeReasoning   StreamMessageType = "reasoning"
 )
 
 type StreamMessageSubType string

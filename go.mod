@@ -2,12 +2,14 @@ module github.com/kkkunny/HuggingChatAPI
 
 go 1.22.2
 
+replace github.com/sashabaranov/go-openai v1.37.0 => github.com/mel2oo/go-openai v0.0.0-20250214072712-ccfca83d4a59
+
 require (
 	github.com/imroc/req/v3 v3.48.0
 	github.com/kkkunny/stl v0.0.0-20241116043033-308ffc3d1d79
 	github.com/labstack/echo/v4 v4.12.0
 	github.com/labstack/gommon v0.4.2
-	github.com/sashabaranov/go-openai v1.32.3
+	github.com/sashabaranov/go-openai v1.37.0
 	golang.org/x/exp v0.0.0-20241009180824-f66d83c29e7c
 )
 
