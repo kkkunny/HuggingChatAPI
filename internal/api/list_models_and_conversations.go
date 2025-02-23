@@ -71,8 +71,10 @@ func ListModelsAndConversations(ctx context.Context, cookies []*http.Cookie) ([]
 			if !unlisted {
 				desc = data[descriptionIndex].(string)
 				parameters := data[parametersIndex].(map[string]any)
-				maxNewTokensIndex := int64(parameters["max_new_tokens"].(float64))
-				maxNewTokens = int64(data[maxNewTokensIndex].(float64))
+				if _, existMaxNewTokensIndex := parameters["max_new_tokens"]; existMaxNewTokensIndex {
+					maxNewTokensIndex := int64(parameters["max_new_tokens"].(float64))
+					maxNewTokens = int64(data[maxNewTokensIndex].(float64))
+				}
 			}
 
 			return &ModelInfo{
