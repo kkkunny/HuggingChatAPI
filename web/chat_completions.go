@@ -213,7 +213,7 @@ func chatCompletionsWithStream(reqCtx echo.Context, msgID string, convInfo *dto.
 				if err != nil {
 					return err
 				}
-				_, err = stlerr.ErrorWith(fmt.Fprint(writer, "data: "+string(data)+"\n"))
+				_, err = stlerr.ErrorWith(fmt.Fprint(writer, "data: "+string(data)+"\n\n"))
 				if err != nil {
 					return err
 				}
@@ -241,7 +241,7 @@ func chatCompletionsWithStream(reqCtx echo.Context, msgID string, convInfo *dto.
 				if err != nil {
 					return err
 				}
-				_, err = stlerr.ErrorWith(fmt.Fprint(writer, "data: "+string(data)+"\n"))
+				_, err = stlerr.ErrorWith(fmt.Fprint(writer, "data: "+string(data)+"\n\n"))
 				if err != nil {
 					return err
 				}
