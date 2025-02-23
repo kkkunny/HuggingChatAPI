@@ -59,15 +59,18 @@ curl -X POST "http://localhost:5695/v1/chat/completions" \
 
 ### 支持的模型
 
+- `meta-llama/Llama-3.3-70B-Instruct`
 - `Qwen/Qwen2.5-72B-Instruct`
-- `meta-llama/Meta-Llama-3.1-70B-Instruct`
 - `CohereForAI/c4ai-command-r-plus-08-2024`
+- `deepseek-ai/DeepSeek-R1-Distill-Qwen-32B`
 - `nvidia/Llama-3.1-Nemotron-70B-Instruct-HF`
+- `Qwen/QwQ-32B-Preview`
 - `Qwen/Qwen2.5-Coder-32B-Instruct`
 - `meta-llama/Llama-3.2-11B-Vision-Instruct`
 - `NousResearch/Hermes-3-Llama-3.1-8B`
 - `mistralai/Mistral-Nemo-Instruct-2407`
 - `microsoft/Phi-3.5-mini-instruct`
+- `meta-llama/Llama-3.1-8B-Instruct`
 
 ## 部署方案
 
